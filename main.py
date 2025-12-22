@@ -42,6 +42,7 @@ class MCQQPlugin(Star):
         self.config = self.context.get_config()
         self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
         self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
+        self.qq_image_forward_mode = (self.config.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
         self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
         self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
         self.mc_to_qq_forward_all_bound_groups = self.config.get("mc_to_qq_forward_all_bound_groups", False)
@@ -186,6 +187,7 @@ class MCQQPlugin(Star):
             self.config = self.context.get_config()
             self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
             self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
+            self.qq_image_forward_mode = (self.config.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
             self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
             self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
             self.mc_to_qq_forward_all_bound_groups = self.config.get("mc_to_qq_forward_all_bound_groups", False)
@@ -194,6 +196,7 @@ class MCQQPlugin(Star):
                 "📝 配置已重新加载: "
                 f"enable_qq_to_mc_forward={self.enable_qq_to_mc_forward}, "
                 f"enable_join_quit_messages={self.enable_join_quit_messages}, "
+                f"qq_image_forward_mode={self.qq_image_forward_mode}, "
                 f"enable_mc_chat_to_qq_forward={self.enable_mc_chat_to_qq_forward}, "
                 f"mc_to_qq_forward_all_bound_groups={self.mc_to_qq_forward_all_bound_groups}"
             )
@@ -302,7 +305,37 @@ class MCQQPlugin(Star):
         
         # 构造转发消息
         # 格式：[QQ群] 用户名: 消息内容
-        forward_text = f"[QQ群] {sender_name}: {message_text}" if message_text else f"[QQ群] {sender_name} 发送了图片"
+        image_mode = (self.qq_image_forward_mode or "clean").strip().lower()
+        if image_mode not in ("clean", "cicode", "raw"):
+            image_mode = "clean"
+
+        forward_text = ""
+        send_images = None
+
+        if image_urls:
+            if image_mode == "raw":
+                # 不修改：沿用旧逻辑（仍会附带图片URL组件）
+                forward_text = f"[QQ群] {sender_name}: {message_text}" if message_text else f"[QQ群] {sender_name} 发送了图片"
+                send_images = image_urls
+            elif image_mode == "cicode":
+                # 增强：把图片编码为 CICode，避免 OneBot 图片段导致的服务端转换失败
+                safe_urls = [(u or "").strip().replace(",", "%2C") for u in image_urls if u and str(u).strip()]
+                cicode_parts = [f"[[CICode,url={u},name=Image]]" for u in safe_urls]
+                if message_text:
+                    forward_text = f"[QQ群] {sender_name}: {message_text.strip()} " + " ".join(cicode_parts)
+                else:
+                    forward_text = f"[QQ群] {sender_name} 发送了图片 " + " ".join(cicode_parts)
+                send_images = None
+            else:
+                # clean（默认）：清洗为“发送了图片”，不再附带图片URL/组件，最大兼容
+                if message_text:
+                    forward_text = f"[QQ群] {sender_name}: {message_text.strip()}（含图片）"
+                else:
+                    forward_text = f"[QQ群] {sender_name} 发送了图片"
+                send_images = None
+        else:
+            forward_text = f"[QQ群] {sender_name}: {message_text.strip()}"
+            send_images = None
         
         # 转发到所有绑定该群的MC服务器
         success_count = 0
@@ -313,7 +346,7 @@ class MCQQPlugin(Star):
                     await adapter.send_rich_message(
                         text=forward_text,
                         hover_text=f"来自QQ群 {group_id}",
-                        images=image_urls if image_urls else None,
+                        images=send_images,
                         color=self.qq_forward_message_color  # 使用配置的颜色
                     )
                     success_count += 1

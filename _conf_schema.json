@@ -11,6 +11,12 @@
     "hint": "QQ消息转发到MC时的文本颜色（十六进制颜色代码，例如 #00BFFF 是天蓝色）。修改后使用 /mcreload 命令重新加载配置即可生效，无需重启",
     "default": "#00BFFF"
   },
+  "qq_image_forward_mode": {
+    "description": "QQ图片转发模式",
+    "type": "string",
+    "hint": "控制 QQ→MC 转发时图片的处理方式：clean=清洗为“发送了图片”（默认，最兼容）；cicode=增强为CICode（[[CICode,url=...,name=Image]]）；raw=不修改（保留原逻辑，仍会附带图片URL组件）。修改后使用 /mcreload 立即生效",
+    "default": "clean"
+  },
   "enable_join_quit_messages": {
     "description": "启用玩家进入/退出消息转发到QQ",
     "type": "bool",
