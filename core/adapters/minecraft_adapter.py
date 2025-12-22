@@ -34,6 +34,7 @@ from ..handlers.message_handler import MessageHandler
         "Authorization": "",
         "enable_join_quit_messages": True,
         "qq_message_prefix": "[MC]",
+        "qq_platform_id": "",
         "max_reconnect_retries": 5,
         "reconnect_interval": 3,
         "filter_bots": True,
@@ -149,15 +150,31 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             logger.debug(f"收到Minecraft消息: {data}")
 
             # 获取事件名称和服务器名称
-            server_type = data.get("server_type", "vanilla")
+            # 兼容：部分实现可能使用 sub_type 上报服务端类型（如 Fabric/Forge/NeoForge）
+            server_type = data.get("server_type") or data.get("sub_type") or "vanilla"
             event_name = data.get("event_name", "")
-            server_name = data.get("server_name", self._server_name)
+            payload_server_name = data.get("server_name", "")
 
             # 根据server_type获取对应的服务器类型对象
             server_class = self.message_handler.get_server_class(server_type)
 
             # 获取关联的群聊列表
-            bound_groups = self.binding_manager.get_bound_groups(server_name)
+            # 注意：绑定关系以“适配器配置的 server_name”为key；部分服务端实现上报的 server_name 可能不同，
+            # 会导致 MC->QQ/#qq 查不到绑定群，表现为“没调用发送/发不出去”。
+            bound_groups = self.binding_manager.get_bound_groups(self._server_name)
+            if not bound_groups and payload_server_name and payload_server_name != self._server_name:
+                fallback_groups = self.binding_manager.get_bound_groups(payload_server_name)
+                if fallback_groups:
+                    logger.warning(
+                        f"[{self.adapter_id}] 绑定群 key 疑似不一致：配置 server_name={self._server_name}，"
+                        f"上报 server_name={payload_server_name}；已使用上报值找到绑定群。"
+                    )
+                    bound_groups = fallback_groups
+                else:
+                    logger.debug(
+                        f"[{self.adapter_id}] 未找到绑定群：config_server_name={self._server_name}, "
+                        f"payload_server_name={payload_server_name}"
+                    )
             
             # 使用映射表简化事件处理
             event_handlers = {
@@ -175,8 +192,19 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             if handler:
                 await handler(data, server_class, bound_groups)
             else:
-                # 对于其他未识别的事件，记录日志但不进行处理
-                logger.debug(f"[{self.adapter_id}] 收到未识别的事件: {event_name}，跳过处理")
+                # 兼容：部分实现可能使用不同的事件名，这里做简单兜底（避免 MC->QQ/#qq 完全不生效）
+                event_name_lower = (event_name or "").lower()
+                if event_name_lower and ("chat" in event_name_lower or "message" in event_name_lower) and "message" in data:
+                    await self._handle_chat_event(data, server_class, bound_groups)
+                elif event_name_lower and ("join" in event_name_lower or "loggedin" in event_name_lower):
+                    await self._handle_join_event(data, server_class, bound_groups)
+                elif event_name_lower and ("quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower):
+                    await self._handle_quit_event(data, server_class, bound_groups)
+                elif event_name_lower and "death" in event_name_lower and hasattr(server_class, "death"):
+                    await self._handle_death_event(data, server_class, bound_groups)
+                else:
+                    # 对于其他未识别的事件，记录日志但不进行处理
+                    logger.debug(f"[{self.adapter_id}] 收到未识别的事件: {event_name}，跳过处理")
 
         except json.JSONDecodeError:
             logger.error(f"无法解析JSON消息: {message}")
@@ -185,8 +213,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_chat_event(self, data, server_class, bound_groups):
         """处理聊天消息事件"""
-        player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
+        player_name = player_data.get("display_name") or player_data.get("nickname") or ""
         message_content = data.get("message", "")
         
         logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
@@ -217,8 +245,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_join_event(self, data, server_class, bound_groups):
         """处理玩家加入事件"""
-        player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
+        player_name = player_data.get("display_name") or player_data.get("nickname") or ""
             
         logger.debug(f"[{self.adapter_id}] 收到玩家加入: {player_name}")
         
@@ -241,8 +269,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_quit_event(self, data, server_class, bound_groups):
         """处理玩家退出事件"""
-        player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
+        player_name = player_data.get("display_name") or player_data.get("nickname") or ""
 
         logger.debug(f"[{self.adapter_id}] 收到玩家退出: {player_name}")
             
@@ -281,34 +309,81 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):
         """发送消息到绑定的QQ群"""
-        # 动态获取 QQ(aioCQHTTP) 适配器的实例 ID，用于构造 session
-        qq_adapter_id = None
-        if hasattr(self, 'context') and self.context and hasattr(self.context, 'platform_manager'):
+        def _get_platform_instances() -> List[Any]:
+            if not getattr(self, "context", None):
+                return []
+            pm = getattr(self.context, "platform_manager", None)
+            if not pm:
+                return []
+
+            # AstrBot 不同版本可能暴露不同字段/方法
+            for attr in ("platform_insts", "platforms"):
+                try:
+                    insts = getattr(pm, attr, None)
+                    if insts:
+                        return list(insts)
+                except Exception:
+                    pass
+
+            for meth in ("get_insts", "get_platforms"):
+                try:
+                    fn = getattr(pm, meth, None)
+                    if callable(fn):
+                        insts = fn()
+                        if insts:
+                            return list(insts)
+                except Exception:
+                    pass
+            return []
+
+        def _get_platform_id(p) -> Optional[str]:
             try:
-                for p in self.context.platform_manager.get_insts():
+                meta = p.meta() if hasattr(p, "meta") else None
+            except Exception:
+                meta = None
+            candidates = [
+                getattr(meta, "id", None) if meta else None,
+                getattr(p, "adapter_id", None),
+                getattr(p, "id", None),
+            ]
+            platform_config = getattr(p, "config", None)
+            if isinstance(platform_config, dict):
+                candidates.extend([platform_config.get("adapter_id"), platform_config.get("id")])
+            return next((c for c in candidates if isinstance(c, str) and c.strip()), None)
+
+        # 优先使用配置显式指定 QQ 平台 ID（避免自动识别失败）
+        qq_adapter_id = (self.config.get("qq_platform_id") or "").strip() or None
+        platforms = _get_platform_instances()
+
+        if not qq_adapter_id and platforms:
+            qq_names = {"aiocqhttp", "aiocqhttp_platform"}
+            for p in platforms:
+                try:
+                    meta = p.meta() if hasattr(p, "meta") else None
+                    platform_name = (getattr(meta, "name", "") or "").strip()
+                    if platform_name in qq_names:
+                        qq_adapter_id = _get_platform_id(p)
+                        break
+                except Exception:
+                    continue
+
+        if not qq_adapter_id and platforms:
+            try:
+                available = []
+                for p in platforms:
                     try:
-                        meta = p.meta()
-                        if meta and meta.name == "aiocqhttp":
-                            candidates = [
-                                getattr(meta, "id", None),
-                                getattr(p, "adapter_id", None),
-                                getattr(p, "id", None),
-                            ]
-                            platform_config = getattr(p, "config", None)
-                            if isinstance(platform_config, dict):
-                                candidates.extend([
-                                    platform_config.get("adapter_id"),
-                                    platform_config.get("id"),
-                                ])
-                            qq_adapter_id = next((c for c in candidates if c), None)
-                            break
+                        meta = p.meta() if hasattr(p, "meta") else None
+                        platform_name = getattr(meta, "name", None) if meta else None
+                        platform_id = _get_platform_id(p)
+                        available.append(f"{platform_name or p.__class__.__name__}:{platform_id or 'unknown'}")
                     except Exception:
                         continue
-            except Exception as e:
-                logger.warning(f"获取 QQ 适配器实例 ID 失败: {str(e)}")
+                logger.warning(f"未找到 QQ 平台适配器（aiocqhttp/aiocqhttp_platform），可用平台: {available}")
+            except Exception:
+                pass
 
         if not qq_adapter_id:
-            logger.warning("未找到 aiocqhttp 适配器实例或其 ID，无法向QQ群发送消息。请确认已启用 QQ 个人号(aiocqhttp) 并查看其平台 ID。")
+            logger.warning("未找到 QQ 平台适配器实例或其 ID，无法向QQ群发送消息。请确认已启用 QQ 平台并检查其平台 ID，或在 Minecraft 适配器配置中填写 qq_platform_id。")
             return
 
         for group_id in group_ids:

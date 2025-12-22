@@ -259,8 +259,9 @@ class MCQQPlugin(Star):
         if not self._initialization_complete:
             return
         
-        # 只处理 QQ 平台的消息（aiocqhttp）
-        if event.get_platform_name() != "aiocqhttp":
+        # 只处理 QQ 平台的消息（兼容 aiocqhttp / aiocqhttp_platform）
+        platform_name = (event.get_platform_name() or "").strip()
+        if platform_name not in ("aiocqhttp", "aiocqhttp_platform"):
             return
         
         # 获取群号
