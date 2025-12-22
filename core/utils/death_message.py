@@ -33,7 +33,10 @@ def _repl_fall(match: Match[str]) -> str:
 def _repl_slain(match: Match[str]) -> str:
     name = (match.groupdict().get("name") or "").strip()
     killer = (match.groupdict().get("killer") or "").strip()
+    item = (match.groupdict().get("item") or "").strip()
     if name and killer:
+        if item:
+            return f"{name} 被 {killer} 用 {item} 杀死"
         return f"{name} 被 {killer} 杀死"
     return (match.group(0) or "").strip()
 
@@ -41,7 +44,10 @@ def _repl_slain(match: Match[str]) -> str:
 def _repl_shot(match: Match[str]) -> str:
     name = (match.groupdict().get("name") or "").strip()
     killer = (match.groupdict().get("killer") or "").strip()
+    item = (match.groupdict().get("item") or "").strip()
     if name and killer:
+        if item:
+            return f"{name} 被 {killer} 用 {item} 射杀"
         return f"{name} 被 {killer} 射杀"
     return (match.group(0) or "").strip()
 
@@ -93,13 +99,22 @@ _RULES: Sequence[DeathMessageRule] = (
     DeathMessageRule(re.compile(r"^(?P<name>.+?) died from dehydration$", re.IGNORECASE), r"\g<name> 脱水而死"),
 
     # 被杀死/被射杀（保留凶手信息）
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was slain by (?P<killer>.+?)$", re.IGNORECASE), _repl_slain),
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was slain by (?P<killer>.+?) using (?P<item>.+?)$", re.IGNORECASE),
-                     lambda m: f"{m.group('name').strip()} 被 {m.group('killer').strip()} 用 {m.group('item').strip()} 杀死"),
+    # 覆盖：was slain by X / was slain by X using Y / 以及尾部追加描述（如 while trying to ...）
+    DeathMessageRule(
+        re.compile(
+            r"^(?P<name>.+?) was slain by (?P<killer>.+?)(?: using (?P<item>.+?))?(?: .+)?$",
+            re.IGNORECASE,
+        ),
+        _repl_slain,
+    ),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) 被 (?P<killer>.+?) 杀死了$"), _repl_slain),
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was shot by (?P<killer>.+?)$", re.IGNORECASE), _repl_shot),
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was shot by (?P<killer>.+?) using (?P<item>.+?)$", re.IGNORECASE),
-                     lambda m: f"{m.group('name').strip()} 被 {m.group('killer').strip()} 用 {m.group('item').strip()} 射杀"),
+    DeathMessageRule(
+        re.compile(
+            r"^(?P<name>.+?) was shot by (?P<killer>.+?)(?: using (?P<item>.+?))?(?: .+)?$",
+            re.IGNORECASE,
+        ),
+        _repl_shot,
+    ),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) 被 (?P<killer>.+?) 射杀了$"), _repl_shot),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed by magic$", re.IGNORECASE), r"\g<name> 被魔法杀死"),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed by (?P<killer>.+?) using magic$", re.IGNORECASE),
@@ -107,9 +122,19 @@ _RULES: Sequence[DeathMessageRule] = (
 
     # 爆炸
     DeathMessageRule(re.compile(r"^(?P<name>.+?) blew up$", re.IGNORECASE), r"\g<name> 爆炸而死"),
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was blown up by (?P<killer>.+?)$", re.IGNORECASE), r"\g<name> 被 \g<killer> 炸死"),
-    DeathMessageRule(re.compile(r"^(?P<name>.+?) was blown up by (?P<killer>.+?) using (?P<item>.+?)$", re.IGNORECASE),
-                     r"\g<name> 被 \g<killer> 用 \g<item> 炸死"),
+    DeathMessageRule(
+        re.compile(
+            r"^(?P<name>.+?) was blown up by (?P<killer>.+?)(?: using (?P<item>.+?))?(?: .+)?$",
+            re.IGNORECASE,
+        ),
+        lambda m: (
+            f"{m.group('name').strip()} 被 {m.group('killer').strip()} 用 {m.group('item').strip()} 炸死"
+            if (m.groupdict().get("name") and m.groupdict().get("killer") and m.groupdict().get("item"))
+            else f"{m.group('name').strip()} 被 {m.group('killer').strip()} 炸死"
+            if (m.groupdict().get("name") and m.groupdict().get("killer"))
+            else (m.group(0) or "").strip()
+        ),
+    ),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) 被 (?P<killer>.+?) 炸死了$"), r"\g<name> 被 \g<killer> 炸死"),
 )
 

@@ -196,6 +196,7 @@ class MCQQPlugin(Star):
             logger.info(
                 "📝 配置已重新加载: "
                 f"enable_qq_to_mc_forward={self.enable_qq_to_mc_forward}, "
+                f"debug_mode={getattr(self, 'debug_mode', False)}, "
                 f"enable_join_quit_messages={self.enable_join_quit_messages}, "
                 f"qq_image_forward_mode={self.qq_image_forward_mode}, "
                 f"enable_mc_chat_to_qq_forward={self.enable_mc_chat_to_qq_forward}, "
@@ -219,6 +220,7 @@ class MCQQPlugin(Star):
         """将配置字典应用到插件实例（cfg 需支持 dict.get）。"""
         try:
             self.enable_qq_to_mc_forward = cfg.get("enable_qq_to_mc_forward", True)
+            self.debug_mode = cfg.get("debug_mode", False)
             self.qq_forward_message_color = cfg.get("qq_forward_message_color", "#00BFFF")
             self.qq_image_forward_mode = (cfg.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
             self.enable_join_quit_messages = cfg.get("enable_join_quit_messages", True)
@@ -228,6 +230,7 @@ class MCQQPlugin(Star):
         except Exception:
             # 极端兼容：cfg 不是 dict-like 时全部回退默认
             self.enable_qq_to_mc_forward = True
+            self.debug_mode = False
             self.qq_forward_message_color = "#00BFFF"
             self.qq_image_forward_mode = "clean"
             self.enable_join_quit_messages = True
@@ -457,6 +460,7 @@ class MCQQPlugin(Star):
             if self._reload_config():
                 yield event.plain_result("✅ 配置已重新加载\n"
                                        f"• QQ→MC转发: {'开启' if self.enable_qq_to_mc_forward else '关闭'}\n"
+                                       f"• 调试模式: {'开启' if getattr(self, 'debug_mode', False) else '关闭'}\n"
                                        f"• MC聊天→QQ: {'开启' if self.enable_mc_chat_to_qq_forward else '关闭'}\n"
                                        f"• 进入/退出消息: {'开启' if self.enable_join_quit_messages else '关闭'}\n"
                                        f"• 死亡消息: {'开启' if self.enable_death_messages else '关闭'}\n"

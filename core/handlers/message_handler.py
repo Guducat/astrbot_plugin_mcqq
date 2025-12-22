@@ -51,6 +51,17 @@ class MessageHandler:
         """本地时间戳（HH:MM:SS）。"""
         return datetime.now().strftime("%H:%M:%S")
 
+    def _dbg(self, adapter, message: str):
+        """debug_mode 关闭时尽量不输出 INFO；开启时用 INFO 方便排查。"""
+        try:
+            plugin = getattr(adapter, "plugin_instance", None) if adapter else None
+            if plugin and getattr(plugin, "debug_mode", False):
+                logger.info(message)
+            else:
+                logger.debug(message)
+        except Exception:
+            logger.debug(message)
+
     def _format_mc_to_qq_chat(self, player_name: str, message_text: str) -> str:
         # QQ 侧不需要额外标签：[MC]/服务器ID 等，直接用“名字:内容”
         return f"{player_name}:{message_text}"
@@ -169,7 +180,7 @@ class MessageHandler:
         except Exception as e:
             logger.warning(f"MC聊天自动转发到QQ失败: {e}")
 
-        logger.info(f"{player_name}: {message_text}")
+        self._dbg(adapter, f"[MC Chat] {player_name}: {message_text}")
 
         abm = AstrBotMessage()
         abm.type = MessageType.GROUP_MESSAGE
@@ -279,7 +290,7 @@ class MessageHandler:
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         
-        logger.info(f"处理玩家进入/退出事件: event_name={event_name}, player_name={player_name}, bound_groups={bound_groups}")
+        self._dbg(adapter, f"[MC Join/Quit] event_name={event_name}, player_name={player_name}, bound_groups={bound_groups}")
 
         # 过滤假人
         if self.bot_filter.is_bot_player(player_name):
@@ -291,9 +302,9 @@ class MessageHandler:
         ts = self._ts()
         event_name_lower = event_name.lower()
         if "join" in event_name_lower or "loggedin" in event_name_lower:
-            message = f"{ts} {player_name} 加入了游戏"
+            message = f"{player_name} 于 {ts} 加入了游戏"
         elif "quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower:
-            message = f"{ts} {player_name} 离开了游戏"
+            message = f"{player_name} 于 {ts} 离开了游戏"
         else:
             logger.warning(f"未识别的进入/退出事件类型: {event_name}")
             return False
@@ -301,7 +312,7 @@ class MessageHandler:
         # 发送到绑定的QQ群
         if bound_groups:
             await send_to_groups_callback(bound_groups, message)
-            logger.info(f"玩家 {player_name} {event_name} 消息已发送到QQ群")
+            self._dbg(adapter, f"[MC Join/Quit] sent: {player_name} {event_name} -> groups={bound_groups}")
 
         return True
     
@@ -345,6 +356,6 @@ class MessageHandler:
         # 发送到绑定的QQ群
         if bound_groups:
             await send_to_groups_callback(bound_groups, message)
-            logger.info(f"玩家 {player_name} 死亡消息已发送到QQ群")
+            self._dbg(adapter, f"[MC Death] sent: {player_name} -> groups={bound_groups}")
 
         return True

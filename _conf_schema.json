@@ -2,43 +2,49 @@
   "enable_qq_to_mc_forward": {
     "description": "启用QQ群消息转发到MC",
     "type": "bool",
-    "hint": "开启后，绑定了MC服务器的QQ群中的所有消息都会自动转发到游戏内（无需唤醒词）。修改后使用 /mcreload 命令重新加载配置即可生效，无需重启",
+    "hint": "开启后，绑定了MC服务器的QQ群中的所有消息都会自动转发到游戏内（无需唤醒词）。",
     "default": true
+  },
+  "debug_mode": {
+    "description": "调试模式（更详细日志）",
+    "type": "bool",
+    "hint": "开启后，插件会输出更多调试日志（用于排查事件/转发链路）；关闭后尽量减少 INFO 日志污染。",
+    "default": false
   },
   "qq_forward_message_color": {
     "description": "QQ消息在MC中的颜色",
     "type": "string",
-    "hint": "QQ消息转发到MC时的文本颜色（十六进制颜色代码，例如 #00BFFF 是天蓝色）。修改后使用 /mcreload 命令重新加载配置即可生效，无需重启",
+    "hint": "QQ消息转发到MC时的文本颜色（十六进制颜色代码，例如 #00BFFF 是天蓝色）。",
     "default": "#00BFFF"
   },
   "qq_image_forward_mode": {
     "description": "QQ图片转发模式",
     "type": "string",
-    "hint": "控制 QQ→MC 转发时图片的处理方式：clean=清洗为“发送了图片”（默认，最兼容）；cicode=增强为CICode（[[CICode,url=...,name=Image]]）；raw=不修改（保留原逻辑，仍会附带图片URL组件）。修改后使用 /mcreload 立即生效",
+    "hint": "控制 QQ→MC 转发时图片的处理方式：clean=清洗为“发送了图片”（默认，最兼容）；cicode=增强为CICode（[[CICode,url=...,name=Image]]）；raw=不修改（保留原逻辑，仍会附带图片URL组件）。",
     "default": "clean"
   },
   "enable_join_quit_messages": {
     "description": "启用玩家进入/退出消息转发到QQ",
     "type": "bool",
-    "hint": "开启后，玩家进入/退出游戏的消息会转发到绑定的QQ群。修改后使用 /mcreload 命令重新加载配置即可生效，无需重启",
+    "hint": "开启后，玩家进入/退出游戏的消息会转发到绑定的QQ群。",
     "default": true
   },
   "enable_death_messages": {
     "description": "启用玩家死亡消息转发到QQ",
     "type": "bool",
-    "hint": "开启后，玩家死亡事件消息会转发到绑定的QQ群。修改后使用 /mcreload 立即生效",
+    "hint": "开启后，玩家死亡事件消息会转发到绑定的QQ群。",
     "default": true
   },
   "enable_mc_chat_to_qq_forward": {
     "description": "启用MC聊天自动转发到QQ",
     "type": "bool",
-    "hint": "开启后，MC普通聊天会自动转发到QQ。为避免刷屏，默认不转发以唤醒词开头的消息（如 #qq/#help 等）。修改后使用 /mcreload 立即生效",
+    "hint": "开启后，MC普通聊天会自动转发到QQ。为避免刷屏，默认不转发以唤醒词开头的消息（如 #qq/#help 等）。",
     "default": false
   },
   "enable_mc_qq_command": {
     "description": "启用MC端 #qq 指令转发到QQ",
     "type": "bool",
-    "hint": "开启后，玩家可在游戏内使用 <唤醒词>qq <消息> 转发到QQ群。关闭后该指令会提示被禁用。修改后使用 /mcreload 立即生效",
+    "hint": "开启后，玩家可在游戏内使用 <唤醒词>qq <消息> 转发到QQ群。关闭后该指令会提示被禁用。",
     "default": true
   }
 }

@@ -147,13 +147,22 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """处理从Minecraft服务器接收到的消息"""
         try:
             data = json.loads(message)
-            logger.debug(f"收到Minecraft消息: {data}")
+            try:
+                plugin = getattr(self, "plugin_instance", None)
+                if plugin and getattr(plugin, "debug_mode", False):
+                    logger.info(f"[{self.adapter_id}] [WS<-MC] {data}")
+                else:
+                    logger.debug(f"收到Minecraft消息: {data}")
+            except Exception:
+                logger.debug(f"收到Minecraft消息: {data}")
 
             # 获取事件名称和服务器名称
             # 兼容：部分实现可能使用 sub_type 上报服务端类型（如 Fabric/Forge/NeoForge）
             server_type = data.get("server_type") or data.get("sub_type") or "vanilla"
             event_name = data.get("event_name", "")
             payload_server_name = data.get("server_name", "")
+            post_type = data.get("post_type", "")
+            sub_type = data.get("sub_type", "")
 
             # 根据server_type获取对应的服务器类型对象
             server_class = self.message_handler.get_server_class(server_type)
@@ -194,7 +203,19 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                 event_handlers[server_class.death] = self._handle_death_event
             
             # 查找并执行对应的处理器
-            handler = event_handlers.get(event_name)
+            # 优先使用 QueQiao 统一字段 post_type/sub_type 来覆盖所有事件类型
+            handler = None
+            if sub_type in ("chat", "player_command") and post_type == "message":
+                handler = self._handle_chat_event
+            elif sub_type == "death" and post_type == "message":
+                handler = self._handle_death_event
+            elif sub_type == "join" and post_type == "notice":
+                handler = self._handle_join_event
+            elif sub_type == "quit" and post_type == "notice":
+                handler = self._handle_quit_event
+            else:
+                handler = event_handlers.get(event_name)
+
             if handler:
                 await handler(data, server_class, bound_groups)
             else:
@@ -450,7 +471,14 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                     message_chain = MessageChain().message(message)
                     try:
                         await self.context.send_message(session, message_chain)
-                        logger.info(f"已发送消息到群 {group_id}（平台ID={qq_adapter_id}）")
+                        try:
+                            plugin = getattr(self, "plugin_instance", None)
+                            if plugin and getattr(plugin, "debug_mode", False):
+                                logger.info(f"已发送消息到群 {group_id}（平台ID={qq_adapter_id}）")
+                            else:
+                                logger.debug(f"已发送消息到群 {group_id}（平台ID={qq_adapter_id}）")
+                        except Exception:
+                            logger.debug(f"已发送消息到群 {group_id}（平台ID={qq_adapter_id}）")
                     except Exception as e:
                         logger.warning(f"发送消息到群 {group_id} 失败: {str(e)}")
                 else:
