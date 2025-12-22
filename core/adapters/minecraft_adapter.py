@@ -21,6 +21,7 @@ from ..managers.group_binding_manager import GroupBindingManager
 from ..managers.websocket_manager import WebSocketManager
 from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
+from ..utils.death_message import normalize_death_message, format_death
 from ..handlers.message_handler import MessageHandler
 
 @register_platform_adapter(
@@ -157,12 +158,19 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                 logger.debug(f"收到Minecraft消息: {data}")
 
             # 获取事件名称和服务器名称
-            # 兼容：部分实现可能使用 sub_type 上报服务端类型（如 Fabric/Forge/NeoForge）
-            server_type = data.get("server_type") or data.get("sub_type") or "vanilla"
-            event_name = data.get("event_name", "")
-            payload_server_name = data.get("server_name", "")
-            post_type = data.get("post_type", "")
-            sub_type = data.get("sub_type", "")
+            server_type = (data.get("server_type") or "").strip().lower()
+            # 兼容：极少数实现可能把服务端类型放在 sub_type
+            if not server_type:
+                maybe_server_type = (data.get("sub_type") or "").strip().lower()
+                if maybe_server_type in {"vanilla", "spigot", "paper", "fabric", "forge", "neoforge", "mcdr", "origin", "velocity"}:
+                    server_type = maybe_server_type
+                else:
+                    server_type = "vanilla"
+
+            event_name = data.get("event_name", "") or ""
+            payload_server_name = data.get("server_name", "") or ""
+            post_type = (data.get("post_type") or "").strip().lower()
+            sub_type = (data.get("sub_type") or "").strip().lower()
 
             # 根据server_type获取对应的服务器类型对象
             server_class = self.message_handler.get_server_class(server_type)
@@ -191,47 +199,91 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             if isinstance(data, dict):
                 data["_binding_server_name"] = binding_server_name
             
-            # 使用映射表简化事件处理
+            # 响应包（如 broadcast 等 API 返回）不参与事件处理
+            if post_type == "response":
+                try:
+                    plugin = getattr(self, "plugin_instance", None)
+                    if plugin and getattr(plugin, "debug_mode", False):
+                        logger.info(f"[{self.adapter_id}] [WS<-MC][response] {data}")
+                    else:
+                        logger.debug(f"[{self.adapter_id}] 收到 response: {data}")
+                except Exception:
+                    logger.debug(f"[{self.adapter_id}] 收到 response: {data}")
+                return
+
+            # 使用映射表简化事件处理（兼容部分实现直接用 event_name）
             event_handlers = {
-                server_class.chat: self._handle_chat_event,
-                server_class.join: self._handle_join_event,
-                server_class.quit: self._handle_quit_event,
+                getattr(server_class, "chat", None): self._handle_chat_event,
+                getattr(server_class, "join", None): self._handle_join_event,
+                getattr(server_class, "quit", None): self._handle_quit_event,
+                getattr(server_class, "death", None): self._handle_death_event,
+                getattr(server_class, "player_command", None): self._handle_player_command_event,
             }
-            
-            # 添加死亡事件处理（如果服务器类型支持）
-            if hasattr(server_class, 'death'):
-                event_handlers[server_class.death] = self._handle_death_event
-            
+
             # 查找并执行对应的处理器
-            # 优先使用 QueQiao 统一字段 post_type/sub_type 来覆盖所有事件类型
+            # 优先使用 QueQiao 字段 post_type/sub_type（参考 wiki: 4. 基本事件类型 / 4.3 Fabric / 4.5 NeoForge）
             handler = None
-            if sub_type in ("chat", "player_command") and post_type == "message":
-                handler = self._handle_chat_event
-            elif sub_type == "death" and post_type == "message":
-                handler = self._handle_death_event
-            elif sub_type == "join" and post_type == "notice":
-                handler = self._handle_join_event
-            elif sub_type == "quit" and post_type == "notice":
-                handler = self._handle_quit_event
-            else:
+            if post_type == "message":
+                if sub_type in {"chat", "player_chat"}:
+                    handler = self._handle_chat_event
+                elif sub_type == "player_command":
+                    handler = self._handle_player_command_event
+                elif sub_type in {"death", "player_death"}:
+                    handler = self._handle_death_event
+            elif post_type == "notice":
+                if sub_type in {"join", "player_join"}:
+                    handler = self._handle_join_event
+                elif sub_type in {"quit", "player_quit"}:
+                    handler = self._handle_quit_event
+                elif sub_type in {"death", "player_death"}:
+                    handler = self._handle_death_event
+
+            if handler is None and event_name:
                 handler = event_handlers.get(event_name)
 
             if handler:
                 await handler(data, server_class, bound_groups)
-            else:
-                # 兼容：部分实现可能使用不同的事件名，这里做简单兜底（避免 MC->QQ/#qq 完全不生效）
-                event_name_lower = (event_name or "").lower()
-                if event_name_lower and ("chat" in event_name_lower or "message" in event_name_lower) and "message" in data:
-                    await self._handle_chat_event(data, server_class, bound_groups)
-                elif event_name_lower and ("join" in event_name_lower or "loggedin" in event_name_lower):
-                    await self._handle_join_event(data, server_class, bound_groups)
-                elif event_name_lower and ("quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower):
-                    await self._handle_quit_event(data, server_class, bound_groups)
-                elif event_name_lower and "death" in event_name_lower and hasattr(server_class, "death"):
-                    await self._handle_death_event(data, server_class, bound_groups)
+                return
+
+            # 兼容：部分实现可能使用不同的字段/命名，这里做简单兜底（尽量覆盖所有事件但不误判）
+            event_name_lower = (event_name or "").lower()
+
+            # death 事件：优先看 sub_type / death 字段 / event_name
+            if sub_type in {"death", "player_death"} or ("death" in data) or ("death" in event_name_lower):
+                await self._handle_death_event(data, server_class, bound_groups)
+                return
+
+            # join/quit 事件：优先看 sub_type / event_name
+            if sub_type in {"join", "player_join"} or ("join" in event_name_lower or "loggedin" in event_name_lower):
+                await self._handle_join_event(data, server_class, bound_groups)
+                return
+            if sub_type in {"quit", "player_quit"} or ("quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower):
+                await self._handle_quit_event(data, server_class, bound_groups)
+                return
+
+            # chat 事件：必须有 message 且看起来像聊天（避免把其他 message 事件当聊天）
+            if (sub_type in {"chat", "player_chat"} or "chat" in event_name_lower) and isinstance(data.get("message"), str):
+                await self._handle_chat_event(data, server_class, bound_groups)
+                return
+
+            # player_command：只记录，不当作聊天
+            if sub_type == "player_command" or "command" in event_name_lower:
+                await self._handle_player_command_event(data, server_class, bound_groups)
+                return
+
+            # 对于其他未识别的事件，记录日志但不进行处理
+            try:
+                plugin = getattr(self, "plugin_instance", None)
+                if plugin and getattr(plugin, "debug_mode", False):
+                    logger.info(
+                        f"[{self.adapter_id}] 未识别事件，已跳过: post_type={post_type}, sub_type={sub_type}, event_name={event_name}, keys={list(data.keys())}"
+                    )
                 else:
-                    # 对于其他未识别的事件，记录日志但不进行处理
-                    logger.debug(f"[{self.adapter_id}] 收到未识别的事件: {event_name}，跳过处理")
+                    logger.debug(
+                        f"[{self.adapter_id}] 未识别事件，已跳过: post_type={post_type}, sub_type={sub_type}, event_name={event_name}"
+                    )
+            except Exception:
+                logger.debug(f"[{self.adapter_id}] 未识别事件，已跳过: post_type={post_type}, sub_type={sub_type}, event_name={event_name}")
 
         except json.JSONDecodeError:
             logger.error(f"无法解析JSON消息: {message}")
@@ -243,12 +295,22 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
         player_name = player_data.get("display_name") or player_data.get("nickname") or ""
         message_content = data.get("message", "")
+        if not isinstance(message_content, str):
+            message_content = str(message_content) if message_content is not None else ""
+        message_content = message_content.strip()
+
+        # 保护：避免把 player_command 等误判成聊天，造成空消息污染
+        if not message_content:
+            logger.debug(
+                f"[{self.adapter_id}] 聊天消息为空，已跳过: sub_type={data.get('sub_type')}, event_name={data.get('event_name')}"
+            )
+            return
         
         logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
         
         # 路由消息到其他适配器（排除假人消息）
         if self.router:
-            if message_content and player_name and not self.bot_filter.is_bot_player(player_name):
+            if player_name and not self.bot_filter.is_bot_player(player_name):
                 logger.debug(f"[{self.adapter_id}] 开始路由聊天消息到其他适配器")
                 await self.router.route_chat_message(self.adapter_id, message_content, player_name)
             elif self.bot_filter.is_bot_player(player_name):
@@ -304,7 +366,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
         await self.message_handler.handle_player_join_quit(
             data=data,
-            event_name=server_class.join,
+            event_name=(data.get("sub_type") or data.get("event_name") or server_class.join),
             server_class=server_class,
             bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups,
@@ -345,7 +407,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
         await self.message_handler.handle_player_join_quit(
             data=data,
-            event_name=server_class.quit,
+            event_name=(data.get("sub_type") or data.get("event_name") or server_class.quit),
             server_class=server_class,
             bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups,
@@ -354,7 +416,24 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_death_event(self, data, server_class, bound_groups):
         """处理玩家死亡事件"""
-        death_message = data.get("message", "")
+        player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
+        player_name = player_data.get("display_name") or player_data.get("nickname") or ""
+
+        death_payload = data.get("death") if isinstance(data.get("death"), dict) else None
+        death_message_raw = data.get("death_message", data.get("message", "")) if isinstance(data, dict) else ""
+        if not isinstance(death_message_raw, str):
+            death_message_raw = str(death_message_raw) if death_message_raw is not None else ""
+
+        # 用 key/args 优先（更稳定），否则用 message/text 归一化
+        death_message = ""
+        try:
+            if death_payload:
+                death_message = format_death(death_payload, default_player_name=player_name)
+            if not death_message and death_message_raw:
+                death_message = normalize_death_message(death_message_raw, default_player_name=player_name)
+        except Exception:
+            death_message = death_message_raw.strip()
+
         # 路由死亡消息到其他适配器
         if self.router and death_message:
             await self.router.route_player_death(self.adapter_id, death_message)
@@ -378,12 +457,33 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
         await self.message_handler.handle_player_death(
             data=data,
-            event_name=server_class.death,
+            event_name=(data.get("sub_type") or data.get("event_name") or getattr(server_class, "death", "death")),
             server_class=server_class,
             bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups,
             adapter=self
         )
+
+    async def _handle_player_command_event(self, data, server_class, bound_groups):
+        """处理玩家命令事件（仅用于排查，不当作聊天转发/触发 AstrBot 事件）"""
+        player_data = data.get("player") if isinstance(data.get("player"), dict) else {}
+        player_name = player_data.get("display_name") or player_data.get("nickname") or ""
+
+        # QueQiao 不同端可能使用 message 或 command 字段
+        cmd = data.get("command") if isinstance(data, dict) else None
+        if not cmd:
+            cmd = data.get("message") if isinstance(data, dict) else None
+        cmd_text = cmd if isinstance(cmd, str) else (str(cmd) if cmd is not None else "")
+        cmd_text = cmd_text.strip()
+
+        try:
+            plugin = getattr(self, "plugin_instance", None)
+            if plugin and getattr(plugin, "debug_mode", False):
+                logger.info(f"[{self.adapter_id}] [MC Command] {player_name}: {cmd_text}")
+            else:
+                logger.debug(f"[{self.adapter_id}] [MC Command] {player_name}: {cmd_text}")
+        except Exception:
+            logger.debug(f"[{self.adapter_id}] [MC Command] {player_name}: {cmd_text}")
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):
         """发送消息到绑定的QQ群"""

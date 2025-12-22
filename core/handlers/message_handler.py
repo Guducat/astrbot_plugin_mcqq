@@ -9,7 +9,7 @@ from astrbot import logger
 from ..events.minecraft_event import MinecraftMessageEvent
 from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge, McdrServer
 from ..utils.bot_filter import BotFilter
-from ..utils.death_message import normalize_death_message
+from ..utils.death_message import normalize_death_message, format_death
 from ..commands.command_factory import CommandFactory
 
 
@@ -302,9 +302,9 @@ class MessageHandler:
         ts = self._ts()
         event_name_lower = event_name.lower()
         if "join" in event_name_lower or "loggedin" in event_name_lower:
-            message = f"{player_name} 于 {ts} 加入了游戏"
+            message = f"{ts} {player_name} 加入了游戏"
         elif "quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower:
-            message = f"{player_name} 于 {ts} 离开了游戏"
+            message = f"{ts} {player_name} 离开了游戏"
         else:
             logger.warning(f"未识别的进入/退出事件类型: {event_name}")
             return False
@@ -343,7 +343,8 @@ class MessageHandler:
             
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-        death_message = data.get("death_message", data.get("message", f"{player_name} 死了"))
+        death_message = data.get("death_message", data.get("message", ""))
+        death_payload = data.get("death") if isinstance(data.get("death"), dict) else None
 
         # 过滤假人
         if self.bot_filter.is_bot_player(player_name):
@@ -351,7 +352,10 @@ class MessageHandler:
             return False
 
         # 构造死亡消息
-        message = normalize_death_message(death_message, default_player_name=player_name) or f"{player_name} 死了"
+        if death_payload:
+            message = format_death(death_payload, default_player_name=player_name) or f"{player_name} 死了"
+        else:
+            message = normalize_death_message(death_message, default_player_name=player_name) or f"{player_name} 死了"
 
         # 发送到绑定的QQ群
         if bound_groups:

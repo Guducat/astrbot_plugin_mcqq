@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Callable, Match, Optional, Pattern, Sequence, Union
+from typing import Callable, Match, Optional, Pattern, Sequence, Union, Any, Mapping
 
 
 _COLOR_CODE_RE = re.compile(r"§.")
@@ -119,6 +119,8 @@ _RULES: Sequence[DeathMessageRule] = (
     DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed by magic$", re.IGNORECASE), r"\g<name> 被魔法杀死"),
     DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed by (?P<killer>.+?) using magic$", re.IGNORECASE),
                      r"\g<name> 被 \g<killer> 用魔法杀死"),
+    DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed$", re.IGNORECASE), r"\g<name> 被杀死"),
+    DeathMessageRule(re.compile(r"^(?P<name>.+?) was killed by (?P<killer>.+?)(?: .+)?$", re.IGNORECASE), r"\g<name> 被 \g<killer> 杀死"),
 
     # 爆炸
     DeathMessageRule(re.compile(r"^(?P<name>.+?) blew up$", re.IGNORECASE), r"\g<name> 爆炸而死"),
@@ -159,3 +161,93 @@ def normalize_death_message(message: str, default_player_name: Optional[str] = N
         return out or msg
 
     return msg
+
+
+def _as_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for v in value:
+            if v is None:
+                continue
+            s = _clean(str(v))
+            if s:
+                out.append(s)
+        return out
+    s = _clean(str(value))
+    return [s] if s else []
+
+
+def _format_killed(args: list[str], verb: str = "杀死") -> str:
+    if len(args) >= 3 and args[0] and args[1] and args[2]:
+        return f"{args[0]} 被 {args[1]} 用 {args[2]} {verb}"
+    if len(args) >= 2 and args[0] and args[1]:
+        return f"{args[0]} 被 {args[1]} {verb}"
+    return ""
+
+
+def format_death(death: Mapping[str, Any], default_player_name: Optional[str] = None) -> str:
+    """
+    通过 QueQiao 的结构化死亡数据（death.key/args/text）格式化死亡消息。
+
+    - 优先用 key/args（与服务端语言无关，稳定）
+    - 若 key 未覆盖则回退到 death.text，并使用 normalize_death_message 做归一化
+    """
+    if not isinstance(death, Mapping):
+        return ""
+
+    key = _clean(str(death.get("key") or ""))
+    args = _as_text_list(death.get("args"))
+    text = _clean(str(death.get("text") or ""))
+
+    if not key:
+        if text:
+            return normalize_death_message(text, default_player_name=default_player_name)
+        return f"{default_player_name} 死了" if default_player_name else ""
+
+    # 常见/高频 key 优先覆盖（输出简洁中文）
+    if key == "death.attack.genericKill":
+        name = args[0] if args else (default_player_name or "")
+        return f"{name} 被杀死" if name else "被杀死"
+
+    # 环境/无击杀者类（args 通常仅包含死者）
+    env_map = {
+        "death.attack.fall": "{0} 从高处坠落",
+        "death.attack.outOfWorld": "{0} 掉出了世界",
+        "death.attack.inWall": "{0} 在墙里窒息",
+        "death.attack.drown": "{0} 溺水",
+        "death.attack.starve": "{0} 饿死了",
+        "death.attack.cactus": "{0} 扎进了仙人掌",
+        "death.attack.freeze": "{0} 冻死了",
+        "death.attack.cramming": "{0} 被挤压致死",
+        "death.attack.magic": "{0} 被魔法杀死",
+        "death.attack.lava": "{0} 试图在熔岩里游泳",
+    }
+    if key in env_map:
+        name = args[0] if args else (default_player_name or "")
+        if name:
+            return env_map[key].format(name)
+        return env_map[key].format("玩家")
+
+    # 有击杀者类（args 通常为 [死者, 击杀者] 或 [死者, 击杀者, 物品]）
+    if key.startswith("death.attack."):
+        # 射杀类（箭/三叉戟等）
+        if ".arrow" in key or ".trident" in key:
+            return _format_killed(args, verb="射杀" if ".arrow" in key else "刺杀")
+
+        # 爆炸类
+        if "explosion" in key or "blown_up" in key:
+            return _format_killed(args, verb="炸死")
+
+        # 默认：被击杀（含 .item）
+        out = _format_killed(args, verb="杀死")
+        if out:
+            return out
+
+    # 兜底：尽量使用 text（可能是英文/中文），并做归一化
+    if text:
+        return normalize_death_message(text, default_player_name=default_player_name)
+
+    name = args[0] if args else (default_player_name or "")
+    return f"{name} 死了" if name else ""
