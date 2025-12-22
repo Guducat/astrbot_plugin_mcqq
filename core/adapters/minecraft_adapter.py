@@ -10,11 +10,9 @@ import psutil
 from astrbot.api.platform import Platform, AstrBotMessage, MessageMember, PlatformMetadata, MessageType
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Plain, Image
-from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
-from astrbot.core.message.message_event_result import MessageChain
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
@@ -119,7 +117,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         return PlatformMetadata(
             name="minecraft",
             description="Minecraft服务器适配器",
-            id=self.config.get("id")
+            id=self.config.get("adapter_id") or self.config.get("id")
         )
 
     async def run(self) -> Awaitable[Any]:
@@ -291,7 +289,18 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                     try:
                         meta = p.meta()
                         if meta and meta.name == "aiocqhttp":
-                            qq_adapter_id = meta.id
+                            candidates = [
+                                getattr(meta, "id", None),
+                                getattr(p, "adapter_id", None),
+                                getattr(p, "id", None),
+                            ]
+                            platform_config = getattr(p, "config", None)
+                            if isinstance(platform_config, dict):
+                                candidates.extend([
+                                    platform_config.get("adapter_id"),
+                                    platform_config.get("id"),
+                                ])
+                            qq_adapter_id = next((c for c in candidates if c), None)
                             break
                     except Exception:
                         continue

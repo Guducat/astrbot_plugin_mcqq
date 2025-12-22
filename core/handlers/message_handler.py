@@ -104,9 +104,10 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         message_text = data.get("message", "")
 
+        command_text = self._extract_command_text(message_text, adapter)
+
         # 优先执行插件内注册的命令，未命中再交由 AstrBot 处理
         try:
-            command_text = self._extract_command_text(message_text, adapter)
             if self.command_registry and command_text is not None:
                 handled = await self.command_registry.handle_command(
                     message_text=command_text,
@@ -123,6 +124,23 @@ class MessageHandler:
                     return True
         except Exception as e:
             logger.error(f"执行 Minecraft 专用命令时出错: {e}")
+
+        # MC 普通聊天自动转发到 QQ（可选）
+        try:
+            plugin = getattr(adapter, "plugin_instance", None) if adapter else None
+            if plugin and getattr(plugin, "enable_mc_chat_to_qq_forward", False):
+                # 默认不转发唤醒词/命令消息，避免刷屏
+                if command_text is None and message_text and message_text.strip():
+                    target_groups = bound_groups or []
+                    if getattr(plugin, "mc_to_qq_forward_all_bound_groups", False) and adapter and hasattr(adapter, "binding_manager"):
+                        bindings = adapter.binding_manager.get_all_bindings()
+                        target_groups = sorted({gid for gids in (bindings or {}).values() for gid in (gids or [])})
+
+                    if target_groups:
+                        formatted_message = f"{self.qq_message_prefix} {player_name}: {message_text.strip()}"
+                        await send_to_groups_callback(target_groups, formatted_message)
+        except Exception as e:
+            logger.warning(f"MC聊天自动转发到QQ失败: {e}")
 
         logger.info(f"{player_name}: {message_text}")
 

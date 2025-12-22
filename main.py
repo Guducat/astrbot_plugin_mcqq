@@ -43,6 +43,8 @@ class MCQQPlugin(Star):
         self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
         self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
         self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
+        self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
+        self.mc_to_qq_forward_all_bound_groups = self.config.get("mc_to_qq_forward_all_bound_groups", False)
 
         # 初始化管理器
         self.rcon_manager = RconManager()
@@ -185,9 +187,16 @@ class MCQQPlugin(Star):
             self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
             self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
             self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
+            self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
+            self.mc_to_qq_forward_all_bound_groups = self.config.get("mc_to_qq_forward_all_bound_groups", False)
             
-            logger.info(f"📝 配置已重新加载: enable_qq_to_mc_forward={self.enable_qq_to_mc_forward}, "
-                       f"enable_join_quit_messages={self.enable_join_quit_messages}")
+            logger.info(
+                "📝 配置已重新加载: "
+                f"enable_qq_to_mc_forward={self.enable_qq_to_mc_forward}, "
+                f"enable_join_quit_messages={self.enable_join_quit_messages}, "
+                f"enable_mc_chat_to_qq_forward={self.enable_mc_chat_to_qq_forward}, "
+                f"mc_to_qq_forward_all_bound_groups={self.mc_to_qq_forward_all_bound_groups}"
+            )
             
             # 同步配置到所有适配器
             if self.platform_manager:
@@ -356,6 +365,8 @@ class MCQQPlugin(Star):
             if self._reload_config():
                 yield event.plain_result("✅ 配置已重新加载\n"
                                        f"• QQ→MC转发: {'开启' if self.enable_qq_to_mc_forward else '关闭'}\n"
+                                       f"• MC聊天→QQ: {'开启' if self.enable_mc_chat_to_qq_forward else '关闭'}"
+                                       f"{'（所有已绑定群）' if self.enable_mc_chat_to_qq_forward and self.mc_to_qq_forward_all_bound_groups else ''}\n"
                                        f"• 进入/退出消息: {'开启' if self.enable_join_quit_messages else '关闭'}")
             else:
                 yield event.plain_result("❌ 配置重新加载失败，请查看日志")
