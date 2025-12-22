@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
@@ -25,7 +25,7 @@ from .core.routing.adapter_router import AdapterRouter
 
 @register("mcqq Another！", "Akiyo-dayo", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件，支持QQ群与MC双向自动转发", "1.9.0", "https://github.com/Akiyo-dayo/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: Any = None):
         super().__init__(context)
 
         # 获取平台管理器
@@ -39,14 +39,10 @@ class MCQQPlugin(Star):
         self.data_dir = StarTools.get_data_dir(PLUGIN_DATA_DIR)
         
         # 读取插件配置
-        self.config = self.context.get_config()
-        self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
-        self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
-        self.qq_image_forward_mode = (self.config.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
-        self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
-        self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
-        self.enable_death_messages = self.config.get("enable_death_messages", True)
-        self.enable_mc_qq_command = self.config.get("enable_mc_qq_command", True)
+        # AstrBot 会在插件存在 `_conf_schema.json` 时，将插件配置作为第二个参数传入 __init__（见官方文档）。
+        # 旧版本/兼容场景下可能不传入，则回退到 Context.get_config()（这是全局配置，可能无法反映 WebUI 的插件配置）。
+        self.config = config if config is not None else self.context.get_config()
+        self._apply_config(self.config)
 
         # 初始化管理器
         self.rcon_manager = RconManager()
@@ -185,14 +181,17 @@ class MCQQPlugin(Star):
     def _reload_config(self):
         """重新加载插件配置"""
         try:
-            self.config = self.context.get_config()
-            self.enable_qq_to_mc_forward = self.config.get("enable_qq_to_mc_forward", True)
-            self.qq_forward_message_color = self.config.get("qq_forward_message_color", "#00BFFF")
-            self.qq_image_forward_mode = (self.config.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
-            self.enable_join_quit_messages = self.config.get("enable_join_quit_messages", True)
-            self.enable_mc_chat_to_qq_forward = self.config.get("enable_mc_chat_to_qq_forward", False)
-            self.enable_death_messages = self.config.get("enable_death_messages", True)
-            self.enable_mc_qq_command = self.config.get("enable_mc_qq_command", True)
+            # 若 AstrBotConfig 支持从文件刷新，优先刷新
+            for meth in ("reload_config", "load_config", "reload", "refresh"):
+                try:
+                    fn = getattr(self.config, meth, None)
+                    if callable(fn):
+                        fn()
+                        break
+                except Exception:
+                    continue
+
+            self._apply_config(self.config)
             
             logger.info(
                 "📝 配置已重新加载: "
@@ -215,6 +214,26 @@ class MCQQPlugin(Star):
         except Exception as e:
             logger.error(f"❌ 重新加载配置失败: {str(e)}")
             return False
+
+    def _apply_config(self, cfg: Any):
+        """将配置字典应用到插件实例（cfg 需支持 dict.get）。"""
+        try:
+            self.enable_qq_to_mc_forward = cfg.get("enable_qq_to_mc_forward", True)
+            self.qq_forward_message_color = cfg.get("qq_forward_message_color", "#00BFFF")
+            self.qq_image_forward_mode = (cfg.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
+            self.enable_join_quit_messages = cfg.get("enable_join_quit_messages", True)
+            self.enable_mc_chat_to_qq_forward = cfg.get("enable_mc_chat_to_qq_forward", False)
+            self.enable_death_messages = cfg.get("enable_death_messages", True)
+            self.enable_mc_qq_command = cfg.get("enable_mc_qq_command", True)
+        except Exception:
+            # 极端兼容：cfg 不是 dict-like 时全部回退默认
+            self.enable_qq_to_mc_forward = True
+            self.qq_forward_message_color = "#00BFFF"
+            self.qq_image_forward_mode = "clean"
+            self.enable_join_quit_messages = True
+            self.enable_mc_chat_to_qq_forward = False
+            self.enable_death_messages = True
+            self.enable_mc_qq_command = True
 
     async def get_all_minecraft_adapter(self) -> List[MinecraftPlatformAdapter]:
         """获取所有Minecraft平台适配器"""
@@ -271,6 +290,22 @@ class MCQQPlugin(Star):
         group_id = event.get_group_id()
         if not group_id:
             return
+
+        # 尽量获取群名，用于 MC 内显示；拿不到就回退到群号
+        group_name = None
+        try:
+            if hasattr(event, "get_group_name") and callable(getattr(event, "get_group_name")):
+                group_name = event.get_group_name()
+        except Exception:
+            group_name = None
+        try:
+            if not group_name and hasattr(event, "message_obj") and getattr(event.message_obj, "group_name", None):
+                group_name = getattr(event.message_obj, "group_name", None)
+        except Exception:
+            pass
+
+        group_display = (str(group_name).strip() if group_name else str(group_id).strip())
+        group_display = group_display.replace("\n", " ").replace("\r", " ")
         
         # 检查该群是否绑定了任何MC服务器
         adapters = self.adapter_router.get_all_adapters()
@@ -322,7 +357,7 @@ class MCQQPlugin(Star):
             return
         
         # 构造转发消息
-        # 格式：[QQ群] 用户名: 消息内容
+        # 格式：用户名:消息内容（MC 侧自带标签，这里不再附加群名/前缀）
         image_mode = (self.qq_image_forward_mode or "clean").strip().lower()
         if image_mode not in ("clean", "cicode", "raw"):
             image_mode = "clean"
@@ -333,26 +368,26 @@ class MCQQPlugin(Star):
         if image_urls:
             if image_mode == "raw":
                 # 不修改：沿用旧逻辑（仍会附带图片URL组件）
-                forward_text = f"[QQ群] {sender_name}: {message_text}" if message_text else f"[QQ群] {sender_name} 发送了图片"
+                forward_text = f"{sender_name}:{message_text.strip()}" if message_text else f"{sender_name}:发送了图片"
                 send_images = image_urls
             elif image_mode == "cicode":
                 # 增强：把图片编码为 CICode，避免 OneBot 图片段导致的服务端转换失败
                 safe_urls = [(u or "").strip().replace(",", "%2C") for u in image_urls if u and str(u).strip()]
                 cicode_parts = [f"[[CICode,url={u},name=Image]]" for u in safe_urls]
                 if message_text:
-                    forward_text = f"[QQ群] {sender_name}: {message_text.strip()} " + " ".join(cicode_parts)
+                    forward_text = f"{sender_name}:{message_text.strip()} " + " ".join(cicode_parts)
                 else:
-                    forward_text = f"[QQ群] {sender_name} 发送了图片 " + " ".join(cicode_parts)
+                    forward_text = f"{sender_name}:发送了图片 " + " ".join(cicode_parts)
                 send_images = None
             else:
                 # clean（默认）：清洗为“发送了图片”，不再附带图片URL/组件，最大兼容
                 if message_text:
-                    forward_text = f"[QQ群] {sender_name}: {message_text.strip()}（含图片）"
+                    forward_text = f"{sender_name}:{message_text.strip()}（含图片）"
                 else:
-                    forward_text = f"[QQ群] {sender_name} 发送了图片"
+                    forward_text = f"{sender_name}:发送了图片"
                 send_images = None
         else:
-            forward_text = f"[QQ群] {sender_name}: {message_text.strip()}"
+            forward_text = f"{sender_name}:{message_text.strip()}"
             send_images = None
         
         # 转发到所有绑定该群的MC服务器
@@ -363,7 +398,7 @@ class MCQQPlugin(Star):
                     # 发送富文本消息（包含图片）
                     await adapter.send_rich_message(
                         text=forward_text,
-                        hover_text=f"来自QQ群 {group_id}",
+                        hover_text=f"来自群 {group_display} ({group_id})",
                         images=send_images,
                         color=self.qq_forward_message_color  # 使用配置的颜色
                     )

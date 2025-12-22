@@ -113,6 +113,8 @@ class CommandHandler:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 构建状态消息
+        # 注意：若插件未按 AstrBot 约定接收 config 参数（AstrBotConfig），则可能一直使用默认值；
+        # 当前版本已支持 __init__(context, config) 来确保 WebUI 配置能被正确读取。
         status_msg = (
             "Minecraft适配器状态:\n"
             "全局开关（/mcreload 生效）:\n"

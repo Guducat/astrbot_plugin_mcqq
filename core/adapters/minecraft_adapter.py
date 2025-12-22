@@ -286,7 +286,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             event_name=server_class.join,
             server_class=server_class,
             bound_groups=filtered_groups,
-            send_to_groups_callback=self.send_to_bound_groups
+            send_to_groups_callback=self.send_to_bound_groups,
+            adapter=self
         )
 
     async def _handle_quit_event(self, data, server_class, bound_groups):
@@ -326,7 +327,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             event_name=server_class.quit,
             server_class=server_class,
             bound_groups=filtered_groups,
-            send_to_groups_callback=self.send_to_bound_groups
+            send_to_groups_callback=self.send_to_bound_groups,
+            adapter=self
         )
 
     async def _handle_death_event(self, data, server_class, bound_groups):
@@ -358,7 +360,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             event_name=server_class.death,
             server_class=server_class,
             bound_groups=filtered_groups,
-            send_to_groups_callback=self.send_to_bound_groups
+            send_to_groups_callback=self.send_to_bound_groups,
+            adapter=self
         )
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):

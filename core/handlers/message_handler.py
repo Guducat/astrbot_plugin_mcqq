@@ -1,5 +1,6 @@
 # filepath: e:\github desktop\AstrBot\data\plugins\astrbot_plugin_mcqq\core\handlers\message_handler.py
 import uuid
+from datetime import datetime
 from typing import Dict, Any, List, Callable, Awaitable, TYPE_CHECKING, Optional
 from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
 from astrbot.api.message_components import Plain
@@ -8,6 +9,7 @@ from astrbot import logger
 from ..events.minecraft_event import MinecraftMessageEvent
 from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge, McdrServer
 from ..utils.bot_filter import BotFilter
+from ..utils.death_message import normalize_death_message
 from ..commands.command_factory import CommandFactory
 
 
@@ -35,6 +37,23 @@ class MessageHandler:
         
         # 使用命令工厂创建命令注册表
         self.command_registry = CommandFactory.setup_command_registry(self)
+
+    def get_qq_prefix(self, adapter=None) -> str:
+        """获取转发到 QQ 的前缀（保留兼容；默认 [MC] 视为禁用）。"""
+        raw_prefix = (self.qq_message_prefix or "").strip()
+        if not raw_prefix:
+            return ""
+        if raw_prefix.lower() in ("[mc]", "none", "disable", "disabled", "禁用"):
+            return ""
+        return raw_prefix
+
+    def _ts(self) -> str:
+        """本地时间戳（HH:MM:SS）。"""
+        return datetime.now().strftime("%H:%M:%S")
+
+    def _format_mc_to_qq_chat(self, player_name: str, message_text: str) -> str:
+        # QQ 侧不需要额外标签：[MC]/服务器ID 等，直接用“名字:内容”
+        return f"{player_name}:{message_text}"
 
     def _extract_command_text(self, message_text: str, adapter=None) -> Optional[str]:
         """移除唤醒词并返回命令文本。未匹配唤醒词时返回 None。"""
@@ -145,7 +164,7 @@ class MessageHandler:
                         ]
 
                     if target_groups:
-                        formatted_message = f"{self.qq_message_prefix} {player_name}: {message_text.strip()}"
+                        formatted_message = self._format_mc_to_qq_chat(player_name, message_text.strip())
                         await send_to_groups_callback(target_groups, formatted_message)
         except Exception as e:
             logger.warning(f"MC聊天自动转发到QQ失败: {e}")
@@ -238,7 +257,8 @@ class MessageHandler:
                                     event_name: str,
                                     server_class,
                                     bound_groups: List[str],
-                                    send_to_groups_callback: Callable[[List[str], str], Awaitable[None]]) -> bool:
+                                    send_to_groups_callback: Callable[[List[str], str], Awaitable[None]],
+                                    adapter=None) -> bool:
         """
         处理玩家进入/退出消息
         
@@ -268,11 +288,12 @@ class MessageHandler:
 
         # 构造进入/退出消息 - 通过检查事件名称判断是加入还是退出
         # 支持各种服务器类型的事件名称
+        ts = self._ts()
         event_name_lower = event_name.lower()
         if "join" in event_name_lower or "loggedin" in event_name_lower:
-            message = f"{self.qq_message_prefix} 🟢 {player_name} 加入了游戏"
+            message = f"{ts} {player_name} 加入了游戏"
         elif "quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower:
-            message = f"{self.qq_message_prefix} 🔴 {player_name} 离开了游戏"
+            message = f"{ts} {player_name} 离开了游戏"
         else:
             logger.warning(f"未识别的进入/退出事件类型: {event_name}")
             return False
@@ -289,7 +310,8 @@ class MessageHandler:
                                 event_name: str,
                                 server_class,
                                 bound_groups: List[str],
-                                send_to_groups_callback: Callable[[List[str], str], Awaitable[None]]) -> bool:
+                                send_to_groups_callback: Callable[[List[str], str], Awaitable[None]],
+                                adapter=None) -> bool:
         """
         处理玩家死亡消息
         
@@ -318,7 +340,7 @@ class MessageHandler:
             return False
 
         # 构造死亡消息
-        message = f"{self.qq_message_prefix} ☠️ {death_message}"
+        message = normalize_death_message(death_message, default_player_name=player_name) or f"{player_name} 死了"
 
         # 发送到绑定的QQ群
         if bound_groups:

@@ -47,7 +47,7 @@ class QQCommand(BaseCommand):
             return True
         
         # 构造转发消息
-        formatted_message = f"{self.message_handler.qq_message_prefix} {player_name}: {qq_message}"
+        formatted_message = f"{player_name}:{qq_message}"
         
         # 发送到绑定的QQ群（支持每群/每服细粒度开关：mc_to_qq.qq_command）
         target_groups = bound_groups or []
