@@ -302,7 +302,13 @@ class CommandHandler:
             return "❓ 请提供要发送的消息内容，例如：/mcsay 大家好"
 
         sender = event.get_sender_name()
-        logger.info(sender)
+        try:
+            if getattr(self.plugin, "debug_mode", False):
+                logger.info(f"[mcsay] sender={sender}")
+            else:
+                logger.debug(f"[mcsay] sender={sender}")
+        except Exception:
+            logger.debug(f"[mcsay] sender={sender}")
         adapters = self.plugin.adapter_router.get_all_adapters()
         if not adapters:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"

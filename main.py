@@ -218,15 +218,38 @@ class MCQQPlugin(Star):
 
     def _apply_config(self, cfg: Any):
         """将配置字典应用到插件实例（cfg 需支持 dict.get）。"""
+        def _as_bool(value: Any, default: bool = False) -> bool:
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return bool(value)
+            # 兼容部分配置系统返回的包装类型（如 .value）
+            try:
+                inner = getattr(value, "value")
+                if inner is not None and inner is not value:
+                    return _as_bool(inner, default=default)
+            except Exception:
+                pass
+            if isinstance(value, str):
+                v = value.strip().lower()
+                if v in {"true", "1", "yes", "y", "on", "enable", "enabled", "开启", "开", "启用"}:
+                    return True
+                if v in {"false", "0", "no", "n", "off", "disable", "disabled", "关闭", "关", "禁用"}:
+                    return False
+                return default
+            return default
+
         try:
-            self.enable_qq_to_mc_forward = cfg.get("enable_qq_to_mc_forward", True)
-            self.debug_mode = cfg.get("debug_mode", False)
+            self.enable_qq_to_mc_forward = _as_bool(cfg.get("enable_qq_to_mc_forward", True), default=True)
+            self.debug_mode = _as_bool(cfg.get("debug_mode", False), default=False)
             self.qq_forward_message_color = cfg.get("qq_forward_message_color", "#00BFFF")
             self.qq_image_forward_mode = (cfg.get("qq_image_forward_mode", "clean") or "clean").strip().lower()
-            self.enable_join_quit_messages = cfg.get("enable_join_quit_messages", True)
-            self.enable_mc_chat_to_qq_forward = cfg.get("enable_mc_chat_to_qq_forward", False)
-            self.enable_death_messages = cfg.get("enable_death_messages", True)
-            self.enable_mc_qq_command = cfg.get("enable_mc_qq_command", True)
+            self.enable_join_quit_messages = _as_bool(cfg.get("enable_join_quit_messages", True), default=True)
+            self.enable_mc_chat_to_qq_forward = _as_bool(cfg.get("enable_mc_chat_to_qq_forward", False), default=False)
+            self.enable_death_messages = _as_bool(cfg.get("enable_death_messages", True), default=True)
+            self.enable_mc_qq_command = _as_bool(cfg.get("enable_mc_qq_command", True), default=True)
         except Exception:
             # 极端兼容：cfg 不是 dict-like 时全部回退默认
             self.enable_qq_to_mc_forward = True
@@ -411,7 +434,13 @@ class MCQQPlugin(Star):
                     logger.error(f"转发消息到MC服务器 {adapter.adapter_id} 失败: {str(e)}")
         
         if success_count > 0:
-            logger.info(f"✉️ QQ→MC: {sender_name}: {message_text[:30]}... (转发到{success_count}个服务器)")
+            try:
+                if getattr(self, "debug_mode", False):
+                    logger.info(f"✉️ QQ→MC: {sender_name}: {message_text[:30]}... (转发到{success_count}个服务器)")
+                else:
+                    logger.debug(f"✉️ QQ→MC: {sender_name}: {message_text[:30]}... (转发到{success_count}个服务器)")
+            except Exception:
+                logger.debug(f"✉️ QQ→MC: {sender_name}: {message_text[:30]}... (转发到{success_count}个服务器)")
         
         # 阻止该消息触发LLM和其他默认处理
         event.should_call_llm(False)

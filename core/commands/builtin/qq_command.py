@@ -66,7 +66,11 @@ class QQCommand(BaseCommand):
 
         if target_groups:
             await send_to_groups_callback(target_groups, formatted_message)
-            logger.info(f"玩家 {player_name} 通过QQ指令发送消息到群聊: {qq_message}")
+            try:
+                # 仅在 debug_mode 时提升为 INFO，避免刷屏
+                self.message_handler._dbg(adapter, f"[MC #qq] {player_name}: {qq_message}")
+            except Exception:
+                logger.debug(f"[MC #qq] {player_name}: {qq_message}")
         else:
             await send_mc_message_callback("❌ 当前服务器没有启用 #qq 的绑定QQ群（或未绑定）")
         

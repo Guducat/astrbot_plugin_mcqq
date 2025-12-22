@@ -302,9 +302,9 @@ class MessageHandler:
         ts = self._ts()
         event_name_lower = event_name.lower()
         if "join" in event_name_lower or "loggedin" in event_name_lower:
-            message = f"{ts} {player_name} 加入了游戏"
+            message = f"{player_name} 于 {ts} 加入了游戏"
         elif "quit" in event_name_lower or "disconnect" in event_name_lower or "loggedout" in event_name_lower:
-            message = f"{ts} {player_name} 离开了游戏"
+            message = f"{player_name} 于 {ts} 离开了游戏"
         else:
             logger.warning(f"未识别的进入/退出事件类型: {event_name}")
             return False
