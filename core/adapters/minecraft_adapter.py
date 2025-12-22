@@ -161,7 +161,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             # 获取关联的群聊列表
             # 注意：绑定关系以“适配器配置的 server_name”为key；部分服务端实现上报的 server_name 可能不同，
             # 会导致 MC->QQ/#qq 查不到绑定群，表现为“没调用发送/发不出去”。
-            bound_groups = self.binding_manager.get_bound_groups(self._server_name)
+            binding_server_name = self._server_name
+            bound_groups = self.binding_manager.get_bound_groups(binding_server_name)
             if not bound_groups and payload_server_name and payload_server_name != self._server_name:
                 fallback_groups = self.binding_manager.get_bound_groups(payload_server_name)
                 if fallback_groups:
@@ -170,11 +171,16 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                         f"上报 server_name={payload_server_name}；已使用上报值找到绑定群。"
                     )
                     bound_groups = fallback_groups
+                    binding_server_name = payload_server_name
                 else:
                     logger.debug(
                         f"[{self.adapter_id}] 未找到绑定群：config_server_name={self._server_name}, "
                         f"payload_server_name={payload_server_name}"
                     )
+
+            # 下游命令/转发需要知道本次使用哪个 key 来查绑定/配置
+            if isinstance(data, dict):
+                data["_binding_server_name"] = binding_server_name
             
             # 使用映射表简化事件处理
             event_handlers = {
@@ -259,11 +265,27 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                 logger.debug(f"[{self.adapter_id}] 跳过假人加入消息: {player_name}")
             
         # 原有的处理逻辑
+        binding_server_name = data.get("_binding_server_name", self._server_name) if isinstance(data, dict) else self._server_name
+        filtered_groups = bound_groups or []
+        # 全局开关（插件级）
+        try:
+            plugin = getattr(self, "plugin_instance", None)
+            if plugin is not None and hasattr(plugin, "enable_join_quit_messages") and not getattr(plugin, "enable_join_quit_messages", True):
+                filtered_groups = []
+        except Exception:
+            pass
+
+        if filtered_groups:
+            filtered_groups = [
+                gid for gid in filtered_groups
+                if self.binding_manager.get_group_flag(binding_server_name, gid, "mc_to_qq.join_quit", True)
+            ]
+
         await self.message_handler.handle_player_join_quit(
             data=data,
             event_name=server_class.join,
             server_class=server_class,
-            bound_groups=bound_groups,
+            bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups
         )
 
@@ -283,11 +305,27 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                 logger.debug(f"[{self.adapter_id}] 跳过假人退出消息: {player_name}")
             
         # 原有的处理逻辑
+        binding_server_name = data.get("_binding_server_name", self._server_name) if isinstance(data, dict) else self._server_name
+        filtered_groups = bound_groups or []
+        # 全局开关（插件级）
+        try:
+            plugin = getattr(self, "plugin_instance", None)
+            if plugin is not None and hasattr(plugin, "enable_join_quit_messages") and not getattr(plugin, "enable_join_quit_messages", True):
+                filtered_groups = []
+        except Exception:
+            pass
+
+        if filtered_groups:
+            filtered_groups = [
+                gid for gid in filtered_groups
+                if self.binding_manager.get_group_flag(binding_server_name, gid, "mc_to_qq.join_quit", True)
+            ]
+
         await self.message_handler.handle_player_join_quit(
             data=data,
             event_name=server_class.quit,
             server_class=server_class,
-            bound_groups=bound_groups,
+            bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups
         )
 
@@ -299,11 +337,27 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             await self.router.route_player_death(self.adapter_id, death_message)
             
         # 原有的处理逻辑
+        binding_server_name = data.get("_binding_server_name", self._server_name) if isinstance(data, dict) else self._server_name
+        filtered_groups = bound_groups or []
+        # 全局开关（插件级）
+        try:
+            plugin = getattr(self, "plugin_instance", None)
+            if plugin is not None and hasattr(plugin, "enable_death_messages") and not getattr(plugin, "enable_death_messages", True):
+                filtered_groups = []
+        except Exception:
+            pass
+
+        if filtered_groups:
+            filtered_groups = [
+                gid for gid in filtered_groups
+                if self.binding_manager.get_group_flag(binding_server_name, gid, "mc_to_qq.death", True)
+            ]
+
         await self.message_handler.handle_player_death(
             data=data,
             event_name=server_class.death,
             server_class=server_class,
-            bound_groups=bound_groups,
+            bound_groups=filtered_groups,
             send_to_groups_callback=self.send_to_bound_groups
         )
 

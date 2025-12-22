@@ -132,9 +132,17 @@ class MessageHandler:
                 # 默认不转发唤醒词/命令消息，避免刷屏
                 if command_text is None and message_text and message_text.strip():
                     target_groups = bound_groups or []
-                    if getattr(plugin, "mc_to_qq_forward_all_bound_groups", False) and adapter and hasattr(adapter, "binding_manager"):
-                        bindings = adapter.binding_manager.get_all_bindings()
-                        target_groups = sorted({gid for gids in (bindings or {}).values() for gid in (gids or [])})
+
+                    # 每群/每服细粒度开关：mc_to_qq.chat
+                    if adapter and hasattr(adapter, "binding_manager"):
+                        binding_server_name = None
+                        if isinstance(data, dict):
+                            binding_server_name = data.get("_binding_server_name")
+                        binding_server_name = binding_server_name or getattr(adapter, "server_name", None) or self.server_name
+                        target_groups = [
+                            gid for gid in target_groups
+                            if adapter.binding_manager.get_group_flag(binding_server_name, gid, "mc_to_qq.chat", True)
+                        ]
 
                     if target_groups:
                         formatted_message = f"{self.qq_message_prefix} {player_name}: {message_text.strip()}"

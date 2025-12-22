@@ -23,16 +23,22 @@
     "hint": "开启后，玩家进入/退出游戏的消息会转发到绑定的QQ群。修改后使用 /mcreload 命令重新加载配置即可生效，无需重启",
     "default": true
   },
+  "enable_death_messages": {
+    "description": "启用玩家死亡消息转发到QQ",
+    "type": "bool",
+    "hint": "开启后，玩家死亡事件消息会转发到绑定的QQ群。修改后使用 /mcreload 立即生效",
+    "default": true
+  },
   "enable_mc_chat_to_qq_forward": {
     "description": "启用MC聊天自动转发到QQ",
     "type": "bool",
     "hint": "开启后，MC普通聊天会自动转发到QQ。为避免刷屏，默认不转发以唤醒词开头的消息（如 #qq/#help 等）。修改后使用 /mcreload 立即生效",
     "default": false
   },
-  "mc_to_qq_forward_all_bound_groups": {
-    "description": "MC聊天转发到所有已绑定群",
+  "enable_mc_qq_command": {
+    "description": "启用MC端 #qq 指令转发到QQ",
     "type": "bool",
-    "hint": "开启后，MC聊天会发到 group_bindings.json 中所有服务器绑定过的QQ群（全局合并），无需每个服务器单独绑定。关闭则仅发到当前服务器绑定的群。修改后使用 /mcreload 立即生效",
-    "default": false
+    "hint": "开启后，玩家可在游戏内使用 <唤醒词>qq <消息> 转发到QQ群。关闭后该指令会提示被禁用。修改后使用 /mcreload 立即生效",
+    "default": true
   }
 }

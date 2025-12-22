@@ -113,7 +113,16 @@ class CommandHandler:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 构建状态消息
-        status_msg = "Minecraft适配器状态:\n"
+        status_msg = (
+            "Minecraft适配器状态:\n"
+            "全局开关（/mcreload 生效）:\n"
+            f"• QQ→MC自动转发: {'✅ 开启' if getattr(self.plugin, 'enable_qq_to_mc_forward', False) else '❌ 关闭'}\n"
+            f"• MC→QQ聊天: {'✅ 开启' if getattr(self.plugin, 'enable_mc_chat_to_qq_forward', False) else '❌ 关闭'}\n"
+            f"• MC→QQ进退: {'✅ 开启' if getattr(self.plugin, 'enable_join_quit_messages', False) else '❌ 关闭'}\n"
+            f"• MC→QQ死亡: {'✅ 开启' if getattr(self.plugin, 'enable_death_messages', True) else '❌ 关闭'}\n"
+            f"• MC→QQ #qq: {'✅ 开启' if getattr(self.plugin, 'enable_mc_qq_command', True) else '❌ 关闭'}\n"
+            "群内细项（每群/每服）：/mc设置\n"
+        )
         
         connected_count = 0
         bound_count = 0
@@ -137,6 +146,27 @@ class CommandHandler:
             
             if group_id:
                 status_msg += f"   绑定: {'✅ 已绑定' if is_bound else '❌ 未绑定'}\n"
+
+                if is_bound and hasattr(adapter, "binding_manager"):
+                    server_name = getattr(adapter, "server_name", None) or getattr(adapter, "_server_name", "")
+                    qq2mc = adapter.binding_manager.get_group_flag(server_name, group_id, "qq_to_mc.forward", True)
+                    mc_chat = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.chat", True)
+                    mc_join_quit = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.join_quit", True)
+                    mc_death = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.death", True)
+                    mc_qq = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.qq_command", True)
+
+                    eff_qq2mc = bool(getattr(self.plugin, "enable_qq_to_mc_forward", False)) and qq2mc
+                    eff_chat = bool(getattr(self.plugin, "enable_mc_chat_to_qq_forward", False)) and mc_chat
+                    eff_join_quit = bool(getattr(self.plugin, "enable_join_quit_messages", False)) and mc_join_quit
+                    eff_death = bool(getattr(self.plugin, "enable_death_messages", True)) and mc_death
+                    eff_qq = bool(getattr(self.plugin, "enable_mc_qq_command", True)) and mc_qq
+
+                    status_msg += (
+                        f"   本群开关: QQ→MC{'✅' if qq2mc else '❌'} | 聊天{'✅' if mc_chat else '❌'} | "
+                        f"进退{'✅' if mc_join_quit else '❌'} | 死亡{'✅' if mc_death else '❌'} | #qq{'✅' if mc_qq else '❌'}\n"
+                        f"   生效状态: QQ→MC{'✅' if eff_qq2mc else '❌'} | 聊天{'✅' if eff_chat else '❌'} | "
+                        f"进退{'✅' if eff_join_quit else '❌'} | 死亡{'✅' if eff_death else '❌'} | #qq{'✅' if eff_qq else '❌'}\n"
+                    )
             
             # 如果未连接，尝试手动启动连接
             if not is_connected:
@@ -151,6 +181,112 @@ class CommandHandler:
                     status_msg += f"   状态: ❌ 重连失败: {str(e)}\n"
             
         return status_msg
+
+    def _parse_bool_token(self, token: str) -> Optional[bool]:
+        t = (token or "").strip().lower()
+        truthy = {"on", "true", "1", "yes", "y", "开启", "开", "启用", "启"}
+        falsy = {"off", "false", "0", "no", "n", "关闭", "关", "禁用", "停"}
+        if t in truthy:
+            return True
+        if t in falsy:
+            return False
+        return None
+
+    def _render_group_settings(self, group_id: str) -> str:
+        adapters = self.plugin.adapter_router.get_all_adapters()
+        bound_adapters = [a for a in adapters if a.is_group_bound(group_id)]
+        if not bound_adapters:
+            return "❌ 本群未绑定任何Minecraft服务器，请先使用 /mcbind 进行绑定"
+
+        lines = ["本群互通细项（每服务器独立）:"]
+        for i, adapter in enumerate(bound_adapters, 1):
+            server_name = getattr(adapter, "server_name", None) or getattr(adapter, "_server_name", "")
+            if not hasattr(adapter, "binding_manager"):
+                continue
+
+            qq2mc = adapter.binding_manager.get_group_flag(server_name, group_id, "qq_to_mc.forward", True)
+            mc_chat = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.chat", True)
+            mc_join_quit = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.join_quit", True)
+            mc_death = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.death", True)
+            mc_qq = adapter.binding_manager.get_group_flag(server_name, group_id, "mc_to_qq.qq_command", True)
+
+            lines.append(f"{i}. {adapter.server_name} ({adapter.adapter_id})")
+            lines.append(f"   QQ→MC自动转发: {'✅' if qq2mc else '❌'}")
+            lines.append(
+                f"   MC→QQ: 聊天{'✅' if mc_chat else '❌'} | 进退{'✅' if mc_join_quit else '❌'} | "
+                f"死亡{'✅' if mc_death else '❌'} | #qq{'✅' if mc_qq else '❌'}"
+            )
+
+        lines.append("用法: /mc设置 <服务器名/适配器ID> <qq2mc|chat|join|death|qqcmd> <on/off>")
+        return "\n".join(lines)
+
+    async def handle_settings_command(self, event: AstrMessageEvent):
+        """处理mc设置命令：查看/修改本群在某服务器下的转发细项"""
+        return await self._decorator_require_admin(self._decorator_require_group(self._handle_settings_logic))(event)
+
+    async def _handle_settings_logic(self, event: AstrMessageEvent):
+        group_id = event.get_group_id()
+        tokens = event.message_str.strip().split()
+
+        # /mc设置 -> 展示本群当前细项
+        if len(tokens) == 1:
+            return self._render_group_settings(group_id)
+
+        # /mc设置 帮助
+        if len(tokens) == 2 and tokens[1] in ("help", "?", "帮助"):
+            return (
+                "用法:\n"
+                "  /mc设置 - 查看本群细项\n"
+                "  /mc设置 <服务器名/适配器ID> <qq2mc|chat|join|death|qqcmd> <on/off>\n"
+                "示例:\n"
+                "  /mc设置 Server chat on\n"
+                "  /mc设置 Server qq2mc off\n"
+            )
+
+        if len(tokens) < 4:
+            return "❓ 参数不足，发送 /mc设置 帮助 查看用法"
+
+        server_name = tokens[1]
+        item = (tokens[2] or "").strip().lower()
+        value = self._parse_bool_token(tokens[3])
+        if value is None:
+            return "❓ 开关值请使用 on/off 或 开启/关闭"
+
+        item_to_path = {
+            "qq2mc": "qq_to_mc.forward",
+            "qq_to_mc": "qq_to_mc.forward",
+            "chat": "mc_to_qq.chat",
+            "join": "mc_to_qq.join_quit",
+            "joinquit": "mc_to_qq.join_quit",
+            "join_quit": "mc_to_qq.join_quit",
+            "death": "mc_to_qq.death",
+            "qqcmd": "mc_to_qq.qq_command",
+            "qq_command": "mc_to_qq.qq_command",
+        }
+        path = item_to_path.get(item)
+        if not path:
+            return "❓ 未知设置项，可用项：qq2mc/chat/join/death/qqcmd（发送 /mc设置 帮助）"
+
+        try:
+            adapter = await self._get_target_adapter(server_name)
+        except AdapterNotFoundError as e:
+            return str(e)
+
+        if not adapter.is_group_bound(group_id):
+            return f"❌ 本群未绑定服务器 {adapter.server_name}，请先使用 /mcbind {adapter.adapter_id}"
+
+        ok = False
+        try:
+            server_key = getattr(adapter, "server_name", None) or getattr(adapter, "_server_name", "")
+            ok = adapter.binding_manager.set_group_flag(server_key, group_id, path, value)
+        except Exception as e:
+            logger.error(f"设置本群转发细项失败: {e}")
+            ok = False
+
+        if not ok:
+            return "❌ 设置失败，请查看日志"
+
+        return "✅ 设置已更新\n" + self._render_group_settings(group_id)
     
     async def handle_say_command(self, event: AstrMessageEvent):
         """处理mcsay命令，支持图片"""
@@ -179,32 +315,57 @@ class CommandHandler:
         return "✅ 消息已发送到所有在线的Minecraft服务器"
     
     def handle_help_command(self, event: AstrMessageEvent):
-        """处理mc帮助命令，更新多服务器说明"""
-        # 检查是否启用QQ到MC转发
-        qq_to_mc_status = "✅ 已启用" if self.plugin.enable_qq_to_mc_forward else "❌ 已禁用"
-        join_quit_status = "✅ 已启用" if self.plugin.enable_join_quit_messages else "❌ 已禁用"
-        
-        return f"""
-Minecraft相关指令菜单:
+        """处理mc帮助命令（支持子菜单：qq2mc / mc2qq / admin / 设置）"""
+        raw = (event.message_str or "").strip()
+        tokens = raw.split(maxsplit=1)
+        sub = (tokens[1] if len(tokens) > 1 else "").strip()
+        sub_lower = sub.lower()
 
-🎮 消息互通功能:
-    QQ群 → MC: {qq_to_mc_status} (无需唤醒词，自动转发)
-    MC → QQ群: ✅ 已启用 (自动转发)
-    进入/退出消息: {join_quit_status}
-    
-    说明: 绑定群聊后，QQ群和MC服务器之间的消息会自动互相转发
-    配置: 可在插件配置中调整各项功能开关
+        # 全局开关状态（注意：群内细项以 /mc设置 为准）
+        qq_to_mc_status = "✅ 开启" if getattr(self.plugin, "enable_qq_to_mc_forward", False) else "❌ 关闭"
+        mc_chat_status = "✅ 开启" if getattr(self.plugin, "enable_mc_chat_to_qq_forward", False) else "❌ 关闭"
+        join_quit_status = "✅ 开启" if getattr(self.plugin, "enable_join_quit_messages", False) else "❌ 关闭"
+        death_status = "✅ 开启" if getattr(self.plugin, "enable_death_messages", True) else "❌ 关闭"
+        qq_cmd_status = "✅ 开启" if getattr(self.plugin, "enable_mc_qq_command", True) else "❌ 关闭"
+
+        if sub_lower in ("qq2mc", "qq", "qq群", "群", "qq->mc", "qq群->mc", "qq到mc", "qq到mc"):
+            return f"""
+QQ群 → MC 指令菜单:
+
+🔁 互通状态（全局）:
+    QQ→MC自动转发: {qq_to_mc_status}
+    说明: 绑定后，QQ群普通消息可自动转发到对应MC服务器（每群/每服细项用 /mc设置）
 
 💬 QQ群指令:
-    '/'或@机器人 - 发起AI对话
-    /mcbind [服务器名] - 绑定当前群聊与指定Minecraft服务器（不填为主服务器）
-    /mcunbind [服务器名] - 解除当前群聊与指定Minecraft服务器的绑定（不填为主服务器）
-    /mcstatus - 显示所有Minecraft适配器的连接状态和绑定信息
-    /mcsay <消息> - 向所有已连接的Minecraft服务器发送消息
-    /mc玩家列表 - 获取服务器在线玩家列表
-    /mcreload - 重新加载插件配置（修改WebUI配置后立即生效）
-    /投影 - 获取投影菜单帮助(依赖插件astrbot_plugin_litematic)
-    
+    /mcbind [服务器名] - 绑定当前群与指定服务器（不填为主服务器）
+    /mcunbind [服务器名] - 解除绑定
+    /mcstatus - 查看连接/绑定/开关状态
+    /mc设置 - 查看/配置本群细项开关
+    /mcsay <消息> - 向所有已连接的MC服务器发送消息
+    /mcreload - 重新加载插件配置（WebUI修改后立即生效）
+"""
+
+        if sub_lower in ("mc2qq", "mc", "游戏内", "mc->qq", "mc到qq", "mc->qq群", "mc→qq"):
+            return f"""
+MC → QQ 指令菜单:
+
+🔁 互通状态（全局）:
+    MC聊天→QQ: {mc_chat_status}
+    进出游戏→QQ: {join_quit_status}
+    死亡消息→QQ: {death_status}
+    #qq指令: {qq_cmd_status}
+    说明: 绑定后转发到QQ群（每群/每服细项用 /mc设置）
+
+🎮 MC游戏内指令:
+    #<内容> - 发起AI对话
+    #qq <消息> - 向QQ群发送消息
+    #wiki <词条名称> - 查询Minecraft Wiki
+"""
+
+        if sub_lower in ("admin", "管理员"):
+            return """
+管理员指令菜单:
+
 🔧 管理员指令:
     /rcon <指令> - 通过RCON执行Minecraft服务器指令
     /rcon 重启 - 尝试重新连接RCON服务器
@@ -213,14 +374,41 @@ Minecraft相关指令菜单:
     /mc广播测试 - 测试发送整点广播
     /mc广播清除 - 清除自定义广播内容，恢复默认
     /mc自定义广播 [文本]|[点击命令]|[悬浮文本] - 发送自定义富文本广播
+"""
 
-🎮 MC游戏内指令:
-    #<内容> - 发起AI对话
-    #qq <消息> - 向QQ群发送消息
-    #wiki <词条名称> - 查询Minecraft Wiki
+        if sub_lower in ("设置", "config", "开关", "switch", "cfg"):
+            return """
+互通细项开关（群内/每服务器独立）:
+
+用法:
+  /mc设置 - 查看本群细项
+  /mc设置 <服务器名/适配器ID> <qq2mc|chat|join|death|qqcmd> <on/off>
+
+示例:
+  /mc设置 Server chat on
+  /mc设置 Server qq2mc off
+"""
+
+        # 默认总览菜单（告诉用户如何拆分打开）
+        return f"""
+Minecraft 指令菜单（总览）:
+
+📌 子菜单:
+    /mc帮助 qq2mc   - QQ群→MC 指令
+    /mc帮助 mc2qq   - MC→QQ群 指令
+    /mc帮助 admin   - 管理员指令
+    /mc帮助 设置    - 互通细项开关
+
+🔁 互通状态（全局）:
+    QQ→MC自动转发: {qq_to_mc_status}
+    MC聊天→QQ: {mc_chat_status}
+    进出游戏→QQ: {join_quit_status}
+    死亡消息→QQ: {death_status}
+    #qq指令: {qq_cmd_status}
 
 ⚠️ 重要提示:
     • 修改插件配置（WebUI）后使用 /mcreload 立即生效
+    • 绑定/解绑与细项开关：优先看 /mcstatus 和 /mc设置
     • 修改适配器配置（平台设置）后必须重启AstrBot
 """
     
