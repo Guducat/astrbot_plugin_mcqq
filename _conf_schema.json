@@ -35,6 +35,12 @@
     "hint": "开启后，玩家死亡事件消息会转发到绑定的QQ群。",
     "default": true
   },
+  "death_message_style": {
+    "description": "死亡消息风格",
+    "type": "string",
+    "hint": "official=只输出官方句式（默认）；mix=官方为主+少量彩蛋；fun=尽量使用彩蛋（无彩蛋则官方）。",
+    "default": "official"
+  },
   "enable_mc_chat_to_qq_forward": {
     "description": "启用MC聊天自动转发到QQ",
     "type": "bool",

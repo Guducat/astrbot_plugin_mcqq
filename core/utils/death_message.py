@@ -1,4 +1,5 @@
 import re
+import random
 from dataclasses import dataclass
 from typing import Callable, Match, Optional, Pattern, Sequence, Union, Any, Mapping
 
@@ -178,6 +179,258 @@ def _as_text_list(value: Any) -> list[str]:
     s = _clean(str(value))
     return [s] if s else []
 
+def _t(official: str, *variants: str) -> tuple[str, ...]:
+    return (official, *variants)
+
+
+# 说明：
+# - 以 death.md 中列出的 key 为范围做“尽量完整”的模板覆盖
+# - 模板使用 `{0} {1} {2}` 对应 args[0..]（通常是 死者/击杀者/物品）
+# - 少量 key（如 onMoon/potato）在原版语言文件中可能没有中文，此处保留 death.md 给出的英文
+_DEATH_TEMPLATES: dict[str, tuple[str, ...]] = {
+    # 暴力行为 / 常见击杀
+    "death.attack.player": _t("{0} 被 {1} 杀死了"),
+    "death.attack.player.item": _t("{0} 被 {1} 用 {2} 杀死了"),
+    "death.attack.mob": _t("{0} 被 {1} 杀死了"),
+    "death.attack.mob.item": _t("{0} 被 {1} 用 {2} 杀死了"),
+
+    "death.attack.arrow": _t("{0} 被 {1} 射杀了"),
+    "death.attack.arrow.item": _t("{0} 被 {1} 用 {2} 射杀了"),
+
+    "death.attack.trident": _t("{0} 被 {1} 刺穿了"),
+    "death.attack.trident.item": _t("{0} 被 {1} 用 {2} 刺穿了"),
+
+    "death.attack.spear": _t("{0} 被 {1} 用矛刺死了"),
+    "death.attack.spear.item": _t("{0} 被 {1} 用 {2} 刺死了"),
+
+    "death.attack.thrown": _t("{0} 被 {1} 砸死了"),
+    "death.attack.thrown.item": _t("{0} 被 {1} 用 {2} 砸死了"),
+
+    "death.attack.fireball": _t("{0} 被 {1} 的火球烧死了"),
+    "death.attack.fireball.item": _t("{0} 被 {1} 用 {2} 发射的火球烧死了"),
+
+    "death.attack.witherSkull": _t("{0} 被 {1} 的凋灵之首杀死了"),
+    "death.attack.witherSkull.item": _t("{0} 被 {1} 用 {2} 发射的凋灵之首杀死了"),
+
+    "death.attack.indirectMagic": _t("{0} 被 {1} 用魔法杀死了"),
+    "death.attack.indirectMagic.item": _t("{0} 被 {1} 用 {2} 施放的魔法杀死了"),
+
+    "death.attack.sonic_boom": _t("{0} 被音波尖啸抹除了"),
+    "death.attack.sonic_boom.player": _t("{0} 被 {1} 的音波尖啸抹除了"),
+    "death.attack.sonic_boom.item": _t("{0} 被 {1} 用 {2} 的音波尖啸抹除了"),
+
+    "death.attack.mace_smash": _t("{0} 被 {1} 的重锤猛击了"),
+    "death.attack.mace_smash.item": _t("{0} 被 {1} 用 {2} 猛击了"),
+
+    # 荆棘/反伤
+    "death.attack.thorns": _t("{0} 在试图伤害 {1} 时被反弹伤害杀死了"),
+    "death.attack.thorns.item": _t("{0} 在试图伤害 {1} 时被 {2} 上的荆棘反弹伤害杀死了"),
+
+    # 蜇刺
+    "death.attack.sting": _t("{0} 被蜇死了"),
+    "death.attack.sting.player": _t("{0} 被 {1} 蜇死了"),
+    "death.attack.sting.item": _t("{0} 被 {1} 用 {2} 蜇死了"),
+
+    # 龙息（注：该伤害类型主要用于 /damage）
+    "death.attack.dragonBreath": _t("{0} 在龙息中烤焦了"),
+    "death.attack.dragonBreath.player": _t("{0} 在与 {1} 战斗时在龙息中烤焦了"),
+
+    # 负面效果 / 环境
+    "death.attack.inFire": _t("{0} 浴火焚身"),
+    "death.attack.inFire.player": _t("{0} 在与 {1} 战斗时浴火焚身"),
+
+    "death.attack.onFire": _t("{0} 被烧死了"),
+    "death.attack.onFire.player": _t("{0} 在与 {1} 战斗时被烧死了"),
+    "death.attack.onFire.item": _t("{0} 被 {1} 用 {2} 烧死了"),
+
+    "death.attack.lava": _t(
+        "{0} 试图在熔岩里游泳",
+        "{0} 被熔化了。",
+        "{0} 被烧成了灰。",
+        "{0} 试图在熔岩中游泳。",
+        "{0} 喜欢在岩浆中玩耍。",
+    ),
+    "death.attack.lava.player": _t("{0} 在试图逃离 {1} 时试图在熔岩里游泳"),
+
+    "death.attack.hotFloor": _t("{0} 发现地板是熔岩块"),
+    "death.attack.hotFloor.player": _t("{0} 在试图逃离 {1} 时发现地板是熔岩块"),
+
+    "death.attack.inWall": _t("{0} 在墙里窒息了"),
+    "death.attack.inWall.player": _t("{0} 在与 {1} 战斗时在墙里窒息了"),
+
+    "death.attack.drown": _t(
+        "{0} 淹死了",
+        "{0} 忘了呼吸。",
+        "{0} 与鱼同眠。",
+        "{0} 溺死了。",
+        "{0} 试图饮尽湖水。",
+        "{0} 发现了亚特兰蒂斯。",
+        "{0} 忘了带毛巾。",
+    ),
+    "death.attack.drown.player": _t("{0} 在试图逃离 {1} 时淹死了"),
+
+    "death.attack.dryout": _t("{0} 脱水而死"),
+    "death.attack.dryout.player": _t("{0} 在试图逃离 {1} 时脱水而死"),
+
+    "death.attack.freeze": _t("{0} 冻死了"),
+    "death.attack.freeze.player": _t("{0} 在试图逃离 {1} 时冻死了"),
+
+    "death.attack.cramming": _t("{0} 被挤死了"),
+    "death.attack.cramming.player": _t("{0} 在试图逃离 {1} 时被挤死了"),
+
+    "death.attack.cactus": _t("{0} 被戳死了"),
+    "death.attack.cactus.player": _t("{0} 在试图逃离 {1} 时走进了仙人掌"),
+
+    "death.attack.sweetBerryBush": _t("{0} 被甜浆果丛刺死了"),
+    "death.attack.sweetBerryBush.player": _t("{0} 在试图逃离 {1} 时被甜浆果丛刺死了"),
+
+    "death.attack.lightningBolt": _t("{0} 被闪电击中"),
+    "death.attack.lightningBolt.player": _t("{0} 在与 {1} 战斗时被闪电击中"),
+
+    "death.attack.magic": _t("{0} 被魔法杀死了"),
+    "death.attack.magic.player": _t("{0} 被 {1} 用魔法杀死了"),
+
+    "death.attack.wither": _t("{0} 凋零了"),
+    "death.attack.wither.player": _t("{0} 在与 {1} 战斗时凋零了"),
+
+    "death.attack.starve": _t("{0} 饿死了"),
+    # 该 key 主要通过 /damage 产生，语义不稳定；保持官方主句式即可
+    "death.attack.starve.player": _t("{0} 饿死了"),
+
+    # 世界边界/虚空
+    "death.attack.outsideBorder": _t("{0} 离开了这个世界的边界"),
+    "death.attack.outsideBorder.player": _t("{0} 在试图逃离 {1} 时离开了这个世界的边界"),
+
+    "death.attack.outOfWorld": _t("{0} 掉出了这个世界"),
+    "death.attack.outOfWorld.player": _t("{0} 在试图逃离 {1} 时掉出了这个世界"),
+
+    # 意外事故
+    "death.attack.fall": _t(
+        "{0} 落地过猛",
+        "{0} 摔死了。",
+        "{0} 没有反弹。",
+        "{0} 发明了重力。",
+        "{0} 领悟了“抛出窗外”的意思。",
+        "{0} 自由……自由落体了。",
+        "{0} 认为自己会飞。",
+        "{0} 留下了一个大坑。",
+        "{0} 坠机了。",
+    ),
+    "death.attack.fall.player": _t("{0} 在试图逃离 {1} 时落地过猛"),
+
+    "death.attack.stalagmite": _t("{0} 被滴水石锥刺穿了"),
+    "death.attack.stalagmite.player": _t("{0} 在试图逃离 {1} 时被滴水石锥刺穿了"),
+
+    "death.attack.anvil": _t("{0} 被铁砧压扁了"),
+    "death.attack.anvil.player": _t("{0} 在与 {1} 战斗时被铁砧压扁了"),
+
+    "death.attack.fallingStalactite": _t("{0} 被掉落的滴水石锥刺穿了"),
+    "death.attack.fallingStalactite.player": _t("{0} 在与 {1} 战斗时被掉落的滴水石锥刺穿了"),
+
+    "death.attack.fallingBlock": _t("{0} 被正在坠落的方块压扁了"),
+    "death.attack.fallingBlock.player": _t("{0} 在与 {1} 战斗时被正在坠落的方块压扁了"),
+
+    "death.attack.flyIntoWall": _t("{0} 体验了动能", "{0} 感受到了动能"),
+    "death.attack.flyIntoWall.player": _t("{0} 在试图逃离 {1} 时体验了动能", "{0} 在试图逃离 {1} 时感受到了动能"),
+
+    # 爆炸
+    "death.attack.explosion": _t("{0} 爆炸了"),
+    "death.attack.explosion.player": _t("{0} 被 {1} 炸死了"),
+    "death.attack.explosion.player.item": _t("{0} 被 {1} 用 {2} 炸死了"),
+
+    "death.attack.badRespawnPoint.message": _t("{0} 被[有意为之的游戏设计]杀死了"),
+
+    # 杂项
+    "death.attack.generic": _t("{0} 死了"),
+    "death.attack.generic.player": _t("{0} 被 {1} 杀死了"),
+
+    "death.attack.genericKill": _t("{0} 被杀死了"),
+    "death.attack.genericKill.player": _t("{0} 被 {1} 杀死了"),
+
+    "death.attack.even_more_magic": _t("{0} 被更强大的魔法杀死了"),
+
+    # 烟花
+    "death.attack.fireworks": _t("{0} 随着烟花一同爆炸了"),
+    "death.attack.fireworks.player": _t("{0} 随着 {1} 的烟花一同爆炸了"),
+    "death.attack.fireworks.item": _t("{0} 随着 {1} 用 {2} 放的烟花一同爆炸了"),
+
+    # 摔落扩展（高处/梯子/藤蔓等）
+    "death.fell.accident.generic": _t("{0} 从高处摔了下来"),
+    "death.fell.accident.ladder": _t("{0} 从梯子上摔了下来"),
+    "death.fell.accident.scaffolding": _t("{0} 从脚手架上摔了下来"),
+    "death.fell.accident.vines": _t("{0} 从藤蔓上摔了下来"),
+    "death.fell.accident.weeping_vines": _t("{0} 从垂泪藤上摔了下来"),
+    "death.fell.accident.twisting_vines": _t("{0} 从缠怨藤上摔了下来"),
+    "death.fell.accident.other_climbable": _t("{0} 攀爬时不慎摔落"),
+    "death.fell.accident.water": _t("{0} 从水中掉了下来"),
+
+    # 摔落相关的复合消息（官方文本较长，此处尽量贴近原版句式）
+    "death.fell.killer": _t("{0} 注定要摔死"),
+    "death.fell.assist": _t("{0} 注定要摔死（{1} 也帮了一把）"),
+    "death.fell.assist.item": _t("{0} 注定要摔死（{1} 用 {2} 也帮了一把）"),
+    "death.fell.finish": _t("{0} 摔得粉身碎骨，{1} 完成了最后一击"),
+    "death.fell.finish.item": _t("{0} 摔得粉身碎骨，{1} 用 {2} 完成了最后一击"),
+
+    # 这些为特殊版本/彩蛋类死亡消息（death.md 提供英文原文）
+    "death.attack.nightmare": _t("{0} was too soft for this world"),
+    "death.attack.nightmare.player": _t("{0} was too soft for this world ({1} helped)"),
+
+    "death.attack.onMoon": _t("{0} experienced the dark side of the moon"),
+    # death.md 注：语言文件无对应文本，这里保留一个可读兜底
+    "death.attack.onMoon.player": _t("{0} experienced the dark side of the moon ({1} helped)"),
+
+    "death.midas.turned_into_gold": _t("{0} was turned into gold"),
+
+    "death.attack.potato_heat": _t("{0} held the hot potato for too long."),
+    "death.attack.potato_heat.player": _t("{0} held the hot potato for too long. ({1} helped)"),
+    "death.attack.potato_magic": _t("{0} was killed by a bad-tempered potato"),
+    "death.attack.potato_magic.player": _t("{0} was killed by a bad-tempered potato ({1} helped)"),
+}
+
+
+def _pick_template(templates: Sequence[str], style: str) -> str:
+    """根据风格在模板列表中选择输出文本。templates[0] 约定为官方版本。"""
+    if not templates:
+        return ""
+
+    normalized = (style or "official").strip().lower()
+    if normalized in {"official", "off", "0", "false", "关闭", "关", "官方"}:
+        return templates[0]
+
+    # fun: 尽量用彩蛋（若无彩蛋则回退官方）
+    if normalized in {"fun", "meme", "彩蛋"}:
+        if len(templates) <= 1:
+            return templates[0]
+        return random.choice(list(templates[1:]))
+
+    # mix/random: 官方为主，少量彩蛋；无彩蛋则官方
+    if normalized in {"mix", "random", "rand", "shuffle", "mixed", "随机"}:
+        if len(templates) <= 1:
+            return templates[0]
+        # 80% 官方，20% 彩蛋
+        if random.random() < 0.2:
+            return random.choice(list(templates[1:]))
+        return templates[0]
+
+    return templates[0]
+
+
+def _safe_format(template: str, args: list[str], default_player_name: Optional[str]) -> str:
+    if not template:
+        return ""
+
+    safe_args = list(args)
+    if not safe_args and default_player_name:
+        safe_args = [default_player_name]
+
+    # pad，避免 IndexError
+    safe_args.extend([""] * 6)
+
+    try:
+        return template.format(*safe_args)
+    except Exception:
+        return template
+
 
 def _format_killed(args: list[str], verb: str = "杀死") -> str:
     if len(args) >= 3 and args[0] and args[1] and args[2]:
@@ -187,7 +440,12 @@ def _format_killed(args: list[str], verb: str = "杀死") -> str:
     return ""
 
 
-def format_death(death: Mapping[str, Any], default_player_name: Optional[str] = None) -> str:
+def format_death(
+    death: Mapping[str, Any],
+    default_player_name: Optional[str] = None,
+    *,
+    style: str = "official",
+) -> str:
     """
     通过 QueQiao 的结构化死亡数据（death.key/args/text）格式化死亡消息。
 
@@ -206,42 +464,11 @@ def format_death(death: Mapping[str, Any], default_player_name: Optional[str] = 
             return normalize_death_message(text, default_player_name=default_player_name)
         return f"{default_player_name} 死了" if default_player_name else ""
 
-    # 常见/高频 key 优先覆盖（输出简洁中文）
-    if key == "death.attack.genericKill":
-        name = args[0] if args else (default_player_name or "")
-        return f"{name} 被杀死" if name else "被杀死"
-
-    # 环境/无击杀者类（args 通常仅包含死者）
-    env_map = {
-        "death.attack.fall": "{0} 从高处坠落",
-        "death.attack.outOfWorld": "{0} 掉出了世界",
-        "death.attack.inWall": "{0} 在墙里窒息",
-        "death.attack.drown": "{0} 溺水",
-        "death.attack.starve": "{0} 饿死了",
-        "death.attack.cactus": "{0} 扎进了仙人掌",
-        "death.attack.freeze": "{0} 冻死了",
-        "death.attack.cramming": "{0} 被挤压致死",
-        "death.attack.magic": "{0} 被魔法杀死",
-        "death.attack.lava": "{0} 试图在熔岩里游泳",
-    }
-    if key in env_map:
-        name = args[0] if args else (default_player_name or "")
-        if name:
-            return env_map[key].format(name)
-        return env_map[key].format("玩家")
-
-    # 有击杀者类（args 通常为 [死者, 击杀者] 或 [死者, 击杀者, 物品]）
-    if key.startswith("death.attack."):
-        # 射杀类（箭/三叉戟等）
-        if ".arrow" in key or ".trident" in key:
-            return _format_killed(args, verb="射杀" if ".arrow" in key else "刺杀")
-
-        # 爆炸类
-        if "explosion" in key or "blown_up" in key:
-            return _format_killed(args, verb="炸死")
-
-        # 默认：被击杀（含 .item）
-        out = _format_killed(args, verb="杀死")
+    templates = _DEATH_TEMPLATES.get(key)
+    if templates:
+        template = _pick_template(templates, style)
+        out = _safe_format(template, args, default_player_name)
+        out = _clean(out)
         if out:
             return out
 

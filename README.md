@@ -1,316 +1,163 @@
-# mcqq Another！
+# astrbot_plugin_mcqq (Guducat Fork v2.0.0)
 
-一个通过[鹊桥模组](https://www.curseforge.com/minecraft/mc-mods/queqiao)实现 Minecraft 平台适配器，并提供 QQ <-> MC 消息互通的 AstrBot 插件。
+基于 [鹊桥模组 (Queqiao)](https://www.curseforge.com/minecraft/mc-mods/queqiao) 的 Minecraft 平台适配器插件：在 AstrBot 内实现 **QQ 群 ↔ Minecraft 服务器** 的消息互通，并提供 RCON、整点广播等管理能力。
 
-基于 [kterna/astrbot_plugin_mcqq](https://github.com/kterna/astrbot_plugin_mcqq) 二次开发，新增功能：
-- ✨ **QQ群与MC双向自动消息转发**（无需唤醒词）
-- 🔧 优化路由器初始化机制
-- 📝 改善整点广播内容
-- 🎨 更友好的配置界面
-- 🔄 配置热重载支持（`/mcreload` 命令）
+本分支：**Guducat Fork v2.0.0**，以当前代码为准；适配 **AstrBot v4.10**，并已在 **NeoForge 1.21.1** 实际部署测试。
 
-⚠️ **重要提示**：由于 AstrBot Minecraft 适配器的限制，本插件**不支持热重载**，修改配置后请完全重启 AstrBot。详见[已知问题](#已知问题)。
+> 上游/参考：kterna / Akiyo-dayo 的 `astrbot_plugin_mcqq`。
 
-[![GitHub](https://img.shields.io/badge/GitHub-Akiyo--dayo-blue?logo=github)](https://github.com/Akiyo-dayo/astrbot_plugin_mcqq)
+## 功能概览（以当前实现为准）
 
-## 核心功能
+- **QQ → MC（默认开启）**：绑定群后，QQ群普通消息会自动转发到对应 MC 服务器（无需唤醒词）。
+  - 支持文字 + 图片（图片转发可选 `clean/cicode/raw` 三种模式，见配置）。
+  - 支持按「**每群/每服务器**」细粒度开关（`/mc设置`）。
+- **MC → QQ（可选项较多）**
+  - 玩家 **进服/退服** 通知（默认开启，可全局关闭/按群按服关闭）。
+  - 玩家 **死亡** 消息（默认开启，可全局关闭/按群按服关闭）。
+  - **MC 普通聊天 → QQ** 自动转发（默认关闭，避免刷屏；开启后默认不转发以唤醒词开头的消息）。
+  - **`<唤醒词>qq <消息>`**：游戏内主动转发到绑定 QQ 群（默认开启，可全局关闭/按群按服关闭）。
+- **多服务器互通（MC ↔ MC）**：若配置了多个 Minecraft 适配器，聊天/进退/死亡会自动转发到其它在线服务器（由 AstrBot 中转）。
+- **管理能力**
+  - `/mcsay`：向所有在线 MC 服务器广播（支持图片）。
+  - `/rcon`：通过 RCON 执行指令（**仅主适配器**）。
+  - `/mc广播*`：整点广播开关、配置、测试、清除、自定义富文本广播。
+  - `/mcreload`：重载插件配置（仅 `_conf_schema.json` 中的插件配置；平台适配器配置需重启）。
 
-- **QQ群 ↔ MC 自动互通**: 绑定群聊后，QQ群和MC服务器的消息会**自动双向转发**，无需唤醒词！
-- **多服务器互通**: 将多个 MC 服务器连接在一起，实现跨服聊天、玩家事件（加入/退出/死亡）同步。
-- **MC -> QQ**:
-  - 玩家**加入/退出/死亡**事件转发到绑定的 QQ 群。
-  - 玩家聊天消息**自动转发**到绑定的 QQ 群。
-  - 在游戏内使用 `<唤醒词>qq <消息>` 将消息发送到 QQ 群。
-  - 在游戏内使用 `<唤醒词><指令>` 调用 AstrBot 的各项功能（包括 AI 对话）。
-- **QQ -> MC**:
-  - **新增**：QQ 群消息**自动转发**到绑定的 MC 服务器（无需唤醒词）。
-  - 支持图片转发（显示为可点击的URL）。
-  - 使用 `/mcsay <消息>` 向所有连接的服务器发送广播。
-  - 提供丰富的管理命令（RCON, 广播, 绑定等）。
-- **高度可配置**: 支持假人过滤、自定义消息前缀、丰富的广播设置、可配置的消息转发开关等。
+## 安装与前置
 
----
+- **AstrBot**：v4.10（或兼容版本）。
+- **QQ 平台**：当前实现仅对 `aiocqhttp` / `aiocqhttp_platform` 的群消息做「QQ→MC 自动转发」监听。
+- **Minecraft 服务器**：
+  - 使用鹊桥模组（Fabric/Forge/NeoForge 等），或
+  - 使用鹊桥的 MCDR 移植版（`/mc玩家列表` 仅该方案可用）。
 
-## 目录
+安装方式：将本插件放入 AstrBot 的插件目录（或通过插件市场安装），重启 AstrBot。
 
-- [重要注意事项](#重要注意事项)
-- [安装与配置](#安装与配置)
-- [命令列表](#命令列表)
-- [常见问题 (FAQ)](#常见问题-faq)
-- [已知问题](#已知问题)
-- [To-Do 计划](#to-do-计划)
-- [更新日志](#更新日志)
+## 快速开始（推荐流程）
 
----
+1. **配置 Minecraft 平台适配器**
+   - AstrBot → 平台适配器 → 新增「Minecraft服务器适配器」。
+   - 关键字段：
+     - `adapter_id`：适配器唯一 ID（多服时用于区分）。
+     - `ws_url`：鹊桥 WebSocket 地址（示例：`ws://127.0.0.1:8080/minecraft/ws`）。
+     - `server_name`：服务器名（**必须与鹊桥配置中的 server_name 一致**，否则绑定/转发可能找不到群）。
+     - `Authorization`：鹊桥配置了 token 时填写（代码会以 `Bearer <token>` 形式发送）。
+     - `qq_platform_id`：可选；当自动识别 QQ 平台失败时，手动填 QQ 平台的 adapter_id。
+   - 其余字段（重连/假人过滤/RCON）见下文「配置说明」。
 
-## 重要注意事项
+2. **配置 Minecraft 唤醒词**
+   - AstrBot → 平台配置 → 唤醒词：为 Minecraft 平台配置一个不与原版 `/` 冲突的前缀（推荐 `#`）。
+   - 兼容：即使未配置，仍会默认识别 `#` 作为唤醒词。
 
-- **游戏内触发指令**: 本插件的游戏内命令依赖 AstrBot 的唤醒词判定。请在 AstrBot「平台配置 → 唤醒词」中为 Minecraft 单独添加一个不会与原版 `/` 指令冲突的前缀（推荐 `#`）。只有以唤醒词开头的聊天才会触发 `qq`、`wiki` 等特殊命令；未配置唤醒词会导致这类命令被忽略。
-- **自动消息转发**: QQ群普通消息会自动转发到MC，无需唤醒词。可在插件配置中关闭此功能。
-- **RCON 限制**: RCON 功能目前仅对**第一个**配置的服务器适配器生效。
-- **配置重载**: 大部分配置修改之后需要完全重启astrbot后才能生效，若出现"为什么修改之后连不上""修改之后无法触发指令"等情况请先重启astrbot试试。
-- **版本更新**: 插件更新后，若适配器配置页面未出现新增的配置项，请**删除旧的适配器并重新创建**。
-- **互通前提**: 多服务器互通功能需要所有服务器都安装[鹊桥模组](https://www.curseforge.com/minecraft/mc-mods/queqiao)或其 MCDR 移植版。
-- **MCDR 特有功能**: `<唤醒词>mc玩家列表` 等部分高级功能仅在使用[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)时可用。
+3. **配置插件开关（WebUI 插件配置）**
+   - 修改后使用 `/mcreload` 让插件配置立即生效。
 
-## 命令触发机制
+4. **在 QQ 群绑定服务器**
+   - 在目标 QQ 群发送：`/mcbind [服务器名或适配器ID]`
+   - 不带参数默认绑定到「主适配器」（通常是第一个找到的 Minecraft 适配器）。
 
-- MC 聊天被包装成 AstrBot 事件后，会按照唤醒词判定是否继续下发到命令处理器。插件注册了 `qq`、`wiki`、`help`、`landmark` 等前缀命令，由 AstrBot 的过滤器按唤醒词过滤后调用。
-- 例如，当唤醒词设置为 `#` 时，在游戏里输入 `#qq 早上好` 会先通过唤醒判定，再由插件的 `QQCommand` 接管，最终把消息转发至绑定的 QQ 群。
-- 若需要自定义唤醒词（如 `!` 或 `bot.`），可在 AstrBot 配置中修改。只要玩家输入的消息以该唤醒词开头，对应的 MCQQ 命令就会生效。
-- **新增**：普通聊天（不带唤醒词）会自动转发到绑定的QQ群，QQ群的消息也会自动转发到MC，实现真正的无缝互通。
+## 配置说明
 
-## 安装与配置
+### 1) 插件配置（WebUI / `_conf_schema.json`）
 
-### 1. 环境要求
+这些配置由插件读取；修改后使用 `/mcreload` 重载：
 
-- **AstrBot**: 已安装并运行 AstrBot 框架。
-- **Minecraft 服务器**:
-  - 安装[鹊桥模组 (Queqiao)](https://www.curseforge.com/minecraft/mc-mods/queqiao)
-  - 或安装[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)
+- `enable_qq_to_mc_forward`（默认 `true`）：是否开启 QQ 群消息自动转发到 MC
+- `qq_forward_message_color`（默认 `#00BFFF`）：QQ→MC 转发文本颜色
+- `qq_image_forward_mode`（默认 `clean`）：QQ→MC 图片转发模式
+  - `clean`：清洗为“发送了图片/（含图片）”，不附带图片组件（最兼容）
+  - `cicode`：把图片 URL 转为 `[[CICode,url=...,name=Image]]`
+  - `raw`：保留图片 URL 组件（最接近旧逻辑）
+- `enable_join_quit_messages`（默认 `true`）：是否转发 MC 进服/退服到 QQ
+- `enable_death_messages`（默认 `true`）：是否转发 MC 死亡到 QQ
+- `enable_mc_chat_to_qq_forward`（默认 `false`）：是否转发 MC 普通聊天到 QQ
+- `enable_mc_qq_command`（默认 `true`）：是否允许 MC 侧使用 `<唤醒词>qq` 转发到 QQ
+- `debug_mode`（默认 `false`）：更详细日志（排查转发链路用）
 
-### 2. 插件安装
+### 2) Minecraft 平台适配器配置（平台设置）
 
-- 将 `astrbot_plugin_mcqq` 文件夹放置到 AstrBot 的 `data/plugins` 目录下。
-- 在 Astrbot 的插件市场中安装。
+这些是「平台适配器」的配置；**修改后通常需要重启 AstrBot** 才能完全生效：
 
-### 3. 鹊桥模组配置
+- `adapter_id`：适配器唯一 ID
+- `ws_url` / `server_name` / `Authorization`：鹊桥连接信息（务必一致）
+- `qq_platform_id`：手动指定 QQ 平台 adapter_id（建议留空自动识别；识别失败再填）
+- 重连：`reconnect_interval` / `max_reconnect_retries`
+- 假人过滤：`filter_bots` / `bot_prefix` / `bot_suffix`
+- RCON（主适配器生效）：`rcon_enabled` / `rcon_host` / `rcon_port` / `rcon_password`
 
-确保鹊桥模组的 `config.yml` (或 MCDR 的 `config.json`) 配置正确，插件需要读取其中的信息。
+### 3) 绑定后的细粒度开关（每群/每服务器）
 
-**示例 `config.yml`:**
-```yaml
-server_name: "MyServer-1"  # 必须与插件适配器配置中的 SERVER_NAME 一致
-access_token: "your_secure_token" # 建议设置, 并填入插件配置的 AUTHORIZATION
-websocket:
-  host: "127.0.0.1"
-  port: 8080
-```
+使用 `/mc设置` 在「某个 QQ 群」里为「某个服务器」单独开关：
 
-### 4. 适配器配置
+- `qq2mc`：该群 → 该服 的 QQ→MC 自动转发
+- `chat` / `join` / `death` / `qqcmd`：该服 → 该群 的 MC→QQ 聊天/进退/死亡/#qq
 
-1.  在 AstrBot 的 **平台适配器** 设置中，新增 **Minecraft服务器适配器**。
-2.  填写以下配置项：
-
-- `adapter_id`: 适配器的唯一标识，例如 `mc_server_1`。
-- `ws_url`: 鹊桥模组的 WebSocket 地址，例如 `ws://127.0.0.1:8080/minecraft/ws`。
-- `server_name`: 服务器名称，**必须**与鹊桥模组配置中的 `server_name` 完全一致。
-- `Authorization`: 访问令牌，如果鹊桥配置了 `access_token` 则必须填写。
-- `enable_join_quit_messages`: (true/false) 是否转发玩家加入/退出消息。
-- `qq_message_prefix`: 转发到 QQ 消息的前缀，例如 `[MC] `。
-- `max_reconnect_retries`: 连接断开后最大重试次数（默认 5）。
-- `reconnect_interval`: 重连间隔秒数（默认 3）。
-- `filter_bots`: (true/false) 是否开启假人消息过滤。
-- `bot_prefix`: 假人名称前缀列表，例如 `["bot_", "robot-"]`。
-- `bot_suffix`: 假人名称后缀列表。
-- `rcon_enabled`: (true/false) 是否启用 RCON 功能。
-- `rcon_host`: RCON 地址。
-- `rcon_port`: RCON 端口。
-- `rcon_password`: RCON 密码 (必填)。
-
-### 5. 绑定群聊
-
-在需要接收 MC 消息的 QQ 群内，发送 `mcbind` 命令，将该群与主服务器绑定。
-
----
-
-## 命令列表
+## 命令列表（以当前实现为准）
 
 ### QQ 群命令
 
-- `mcbind [服务器ID]`
-  - **功能**: 绑定当前群聊与指定 MC 服务器。不指定服务器ID则绑定到主服务器。
-  - **权限**: 管理员
+多数命令为群聊使用；标注「管理员」的命令需要 AstrBot 管理员权限：
 
-- `mcunbind [服务器ID]`
-  - **功能**: 解除当前群聊与指定 MC 服务器的绑定。
-  - **权限**: 管理员
+- `/mcbind [服务器名/适配器ID]`（管理员）：绑定当前群到指定服务器（不填为主适配器）
+- `/mcunbind [服务器名/适配器ID]`（管理员）：解绑
+- `/mcstatus`：查看所有适配器连接状态 + 本群绑定/开关（未连接会触发一次尝试重连）
+- `/mc设置`（管理员）：查看/修改本群在某服务器下的细项开关（见上文）
+- `/mcsay <消息>`：向所有在线 MC 服务器广播（支持图片）
+- `/mcreload`：重载插件配置（WebUI 插件配置修改后用）
+- `/mc帮助 [qq2mc|mc2qq|admin|设置]`：分菜单帮助
+- `/mc玩家列表`：请求玩家列表（仅 MCDR 版鹊桥可用）
 
-- `mcstatus`
-  - **功能**: 查看所有 MC 适配器的连接状态和当前群聊的绑定信息。
+管理员相关：
 
-- `mcsay <消息>`
-  - **功能**: 向所有已连接的 MC 服务器发送消息（支持图片），暂不支持cq表情。
+- `/rcon <指令>`（管理员）：通过 RCON 执行 MC 指令（仅主适配器）
+- `/rcon 重启`（管理员）：重连 RCON
+- `/mc广播设置 <adapter_id> <配置>`（管理员）：设置某个适配器的整点广播内容（不带参数则显示当前配置）
+  - 简单：直接写文本
+  - 富文本：`文本,颜色,粗体(true/false),点击命令,悬浮文本|下一个组件`（支持 `{{time}}` 占位）
+- `/mc广播开关`（管理员）：开启/关闭整点广播
+- `/mc广播清除 [adapter_id]`（管理员）：清除指定适配器（或全部）的自定义广播内容
+- `/mc广播测试`（管理员）：立即执行一次整点广播（含 Wiki 内容）
+- `/mc自定义广播 文本|点击命令|悬浮文本`（管理员）：向所有在线服务器发送自定义富文本广播
 
-- `rcon <指令>`
-  - **功能**: 通过 RCON 在**主服务器**上执行指令。
-  - **权限**: 管理员
+### Minecraft 游戏内（聊天）命令
 
-- `rcon 重启`
-  - **功能**: 尝试重新连接**主服务器**的 RCON 服务。
-  - **权限**: 管理员
+需要以「唤醒词」开头（推荐 `#`）：
 
-- `mc广播设置 <适配器ID> <配置>`
-  - **功能**: 为指定服务器设置整点广播内容（支持富文本）。
-  - **权限**: 管理员
+- `<唤醒词>qq <消息>`：转发到绑定 QQ 群（受 `enable_mc_qq_command` 与 `/mc设置 qqcmd` 控制）
+- `<唤醒词>wiki [关键词]`：查询中文 Minecraft Wiki；不带关键词会返回随机知识
+- `<唤醒词>路标 查看/增加/编辑/删除 ...`：路标管理（详见游戏内帮助输出）
+- `<唤醒词>命令指南`：向玩家私聊发送一段指南内容（用于服务器内查看）
+- `<唤醒词><AstrBot 指令>`：执行 AstrBot 指令/触发对话（如 `#help`、`#你好`）
 
-- `mc广播开关`
-  - **功能**: 全局开启或关闭所有服务器的整点广播。
-  - **权限**: 管理员
+## 常见问题（FAQ）
 
-- `mc广播测试`
-  - **功能**: 立即触发一次整点广播进行测试。
-  - **权限**: 管理员
+### 1) QQ→MC 没有转发
 
-- `mc自定义广播 <文本>|<点击命令>|<悬浮文本>`
-  - **功能**: 向所有绑定的服务器发送富文本自定义广播。
-  - **权限**: 管理员
+- 确认插件配置 `enable_qq_to_mc_forward=true`
+- 确认 QQ 平台为 `aiocqhttp` / `aiocqhttp_platform`
+- 确认当前群已 `/mcbind` 且 `/mc设置 <server> qq2mc on`
+- 若只发图片不生效：检查 `qq_image_forward_mode`（推荐先用 `clean`）
 
-- `mc帮助`
-  - **功能**: 查看所有可用的 MC 相关命令及其说明。
+### 2) MC→QQ 没有转发（进退/死亡/#qq/聊天）
 
-- `mcreload` ✨ **新增**
-  - **功能**: 重新加载插件配置（从 WebUI 修改配置后使用此命令立即生效）。
-  - **说明**: 无需重启 AstrBot，可立即应用配置更改。
-  - **权限**: 所有用户
+- 确认群已绑定：`/mcstatus`
+- 确认细项开关：`/mc设置`（对应 `chat/join/death/qqcmd`）
+- 确认全局开关：WebUI 插件配置（`enable_join_quit_messages / enable_death_messages / enable_mc_chat_to_qq_forward / enable_mc_qq_command`）
+- 若提示找不到 QQ 平台：在 Minecraft 适配器配置里填写 `qq_platform_id`
 
-  - **功能**: 向所有服务器发送自定义的富文本广播。
-  - **权限**: 管理员
+### 3) `/mcreload` 之后仍“不生效”
 
-- `mc帮助`
-  - **功能**: 显示本帮助信息。
+- `/mcreload` 只针对插件配置（WebUI 插件配置）重载
+- 修改 `ws_url/server_name/Authorization/qq_platform_id` 等平台适配器配置后：请 **重启 AstrBot**
 
-- `mc玩家列表`
-  - **功能**: 获取服务器在线玩家列表。
-  - **注意**: 此功能仅在使用[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)时可用，原版鹊桥模组不支持此API。
+## 已知限制
 
-### Minecraft 游戏内命令
-
-- `<唤醒词>qq <消息>`
-  - **功能**: 将消息发送到所有绑定的 QQ 群。
-
-- `<唤醒词><AstrBot 指令>`
-  - **功能**: 调用 AstrBot 的核心功能，例如设置唤醒词为 `#` 时，可输入 `#help` 或 `#你好` 与 AI 对话。
-
-- `<唤醒词>wiki <词条>`
-  - **功能**: 查询 Minecraft Wiki。
-
----
-
-## 常见问题 (FAQ)
-
-**Q: 为什么 `rcon` 命令没反应或提示失败？**
-**A:** 请检查以下几点：
-  1.  你是否是 AstrBot 管理员。
-  2.  主服务器（第一个适配器）的 RCON 配置是否已启用并正确填写。
-  3.  MC 服务器的 `server.properties` 文件中是否已启用 RCON。
-  4.  服务器防火墙是否已放行 RCON 端口。
-  5.  该功能目前只对第一个配置的服务器生效。
-
-**Q: 连接状态显示"未连接"怎么办？**
-**A:** 请检查：
-  1.  MC 服务器及鹊桥模组是否正在运行。
-  2.  插件适配器配置中的 `ws_url`, `server_name`, `Authorization` 是否与鹊桥的配置完全一致。
-  3.  服务器防火墙是否已放行 WebSocket 端口。
-  4.  尝试在 QQ 使用 `mcstatus` 命令，它会自动触发一次重连。
-
-**Q: 修改 WebUI 配置后为什么不生效？**
-**A:** 有两种方式使配置生效：
-  1. **推荐方式**：在 QQ 群中发送 `/mcreload` 命令，立即重新加载配置，无需重启。
-  2. 完全重启 AstrBot（不推荐，耗时较长）。
-
-**Q: 修改适配器配置（ws_url、server_name等）后为什么不生效？** ⚠️
-**A:** **适配器配置是特殊的**，修改后必须完全重启 AstrBot 才能生效。这是因为：
-  - 适配器在 AstrBot 启动时初始化，插件热重载无法重新创建适配器。
-  - 如果只是热重载插件，将无法找到 Minecraft 适配器实例。
-  - **建议**：适配器配置一次性设置正确后就不要频繁修改。
-
-**Q: 为什么玩家进入/退出游戏的消息没有发送到QQ群？**
-**A:** 请检查：
-  1. 该QQ群是否已经通过 `/mcbind` 绑定了MC服务器。
-  2. WebUI 配置中的 `enable_join_quit_messages` 是否为 `true`。
-  3. 修改配置后是否执行了 `/mcreload` 命令。
-  4. 玩家名称是否被假人过滤器过滤（检查 `bot_prefix` 和 `bot_suffix` 配置）。
-
-**Q: `mc玩家列表` 命令提示"请求失败"或没有响应？**
-**A:** 请检查以下几点：
-  1.  确保你使用的是[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)，原版鹊桥模组不支持此API。
-  2.  MCDR 移植版是否已正确加载并运行。
-  3.  服务器连接状态是否正常（可通过 `mcstatus` 查看）。
-  4.  MCDR 插件配置是否正确。
-
----
-
-## 已知问题
-
-⚠️ **以下问题目前暂无法完美解决，请知悉：**
-
-1. **AstrBot WebUI 配置修改无法生效**
-   - **现象**：在 WebUI 中修改插件配置后，即使热重载插件，配置也不会立即生效
-   - **临时解决方案**：在 QQ 群中发送 `/mcreload` 命令手动重新加载配置
-   - **根本解决方案**：完全重启 AstrBot
-   - **原因**：配置系统在插件初始化时读取，热重载不会触发重新读取
-
-2. **插件无法热重载（该问题可能无法解决）**
-   - **现象**：热重载插件后，提示"无法找到 Minecraft 适配器"，所有功能失效
-   - **解决方案**：必须完全重启 AstrBot
-   - **原因**：这是 AstrBot 中 Minecraft 适配器的 BUG 导致的。Minecraft 适配器自身无法热重载，重载插件时适配器实例已被销毁但无法重新创建
-   - **建议**：配置好插件后尽量避免热重载，需要修改配置时直接重启 AstrBot
-
----
-
-## To-Do 计划
-
-📋 **未来开发计划：**
-
-- [ ] **重写玩家列表功能**
-  - 计划实现无需依赖 MCDR 版本鹊桥 API 的玩家列表查询
-  - 目标：让原版鹊桥模组也能支持玩家列表查询功能
-  - 状态：规划中
-
-- [ ] **改进适配器热重载支持**
-  - 尝试寻找 AstrBot 适配器热重载的解决方案
-  - 状态：研究中（可能受限于 AstrBot 框架本身）
-
----
-
-## 更新日志
-
-### v1.9.0 (Akiyo-dayo Fork)
-
-**新增功能**：
-- ✨ **QQ群 → MC 自动消息转发**：绑定群聊后，QQ群消息会自动转发到MC服务器，无需唤醒词
-- 🖼️ **图片支持**：QQ群发送的图片会作为可点击的URL显示在MC中
-- ⚙️ **配置选项**：新增 `enable_qq_to_mc_forward` 和 `enable_join_quit_messages` 配置项
-- 🎨 **消息颜色自定义**：可配置QQ消息在MC中的显示颜色
-- 🔄 **配置重载命令**：新增 `/mcreload` 命令，可在不重启的情况下重新加载配置
-
-**优化改进**：
-- 🔧 **路由器初始化优化**：改用主动轮询机制，解决适配器初始化时序问题
-- 📝 **整点广播优化**：改善默认广播内容，更加正式专业
-- 🐛 **修复事件名称匹配**：修复玩家进入/退出/死亡消息无法转发到QQ的问题
-- 📊 **日志优化**：关键初始化步骤使用表情符号标识，更易于调试
-- ⚡ **事件处理优化**：简化消息转发逻辑，提高性能
-
-**已知问题**：
-- ⚠️ WebUI 配置修改需要执行 `/mcreload` 或重启 AstrBot 才能生效
-- ⚠️ 插件热重载功能不可用，必须重启 AstrBot（受限于 Minecraft 适配器）
-
-**Bug修复**：
-- 🐛 修复配置文件格式错误导致插件加载失败的问题
-- 🐛 修复路由器未设置的警告日志问题
-
----
-
-### 上游版本历史 (kterna)
-
-- **v1.8.2**: 增加mcsay对qq图片的支持
-- **v1.8.1**: 修复mcsay发送数据格式错误问题
-- **v1.8.0**: 对astrbotv4.0.0+进行适配，修复几个bug。
-- **v1.7.4**: 优化消息处理流程。
-- **v1.7.3**: 修复bug
-- **v1.7.2**: 增加了过滤格式化代码
-- **v1.7.1**: 增加mcdr特定指令，修改readme。
-- **v1.7.0**: 增加了对 MCDR 的支持。
-- **v1.6.2**: 重构了部分代码。
-- **v1.6.1**: 增加多服务器分别设置广播内容功能，修改广播数据结构。
-- **v1.6.0**: 增加多服务器互通功能。
-- **v1.5.1**: 修复bug，注册命令更简单、可维护。
-- **v1.5.0**: 增加wiki查询，增加整点广播支持富文本内容。
-- **v1.4.0**: 增加rcon命令。
-- **v1.3.0**: 增加了minecraft平台适配器。
-- **v1.0.0**: 发布测试版本。
+- AstrBot 平台适配器的配置变更通常需要重启；热重载插件/适配器在不同 AstrBot 版本上行为不完全一致。
+- `/mc玩家列表` 依赖 MCDR 版鹊桥的 API，原版鹊桥不支持该请求。
 
 ## 许可证
 
-本项目采用 MIT 许可证。
+MIT License
+
+## 备注
+Docs by ChatGPT5.2

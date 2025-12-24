@@ -23,7 +23,7 @@ from .core.handlers.command_handler import CommandHandler
 # 导入路由管理器
 from .core.routing.adapter_router import AdapterRouter
 
-@register("mcqq Another！", "Akiyo-dayo", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件，支持QQ群与MC双向自动转发", "1.9.0", "https://github.com/Akiyo-dayo/astrbot_plugin_mcqq")
+@register("mcqq next", "Guducat", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件，支持QQ群与MC双向自动转发", "2.0.0", "https://github.com/guducat/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context, config: Any = None):
         super().__init__(context)
@@ -249,6 +249,7 @@ class MCQQPlugin(Star):
             self.enable_join_quit_messages = _as_bool(cfg.get("enable_join_quit_messages", True), default=True)
             self.enable_mc_chat_to_qq_forward = _as_bool(cfg.get("enable_mc_chat_to_qq_forward", False), default=False)
             self.enable_death_messages = _as_bool(cfg.get("enable_death_messages", True), default=True)
+            self.death_message_style = (cfg.get("death_message_style", "official") or "official").strip().lower()
             self.enable_mc_qq_command = _as_bool(cfg.get("enable_mc_qq_command", True), default=True)
         except Exception:
             # 极端兼容：cfg 不是 dict-like 时全部回退默认
@@ -259,6 +260,7 @@ class MCQQPlugin(Star):
             self.enable_join_quit_messages = True
             self.enable_mc_chat_to_qq_forward = False
             self.enable_death_messages = True
+            self.death_message_style = "official"
             self.enable_mc_qq_command = True
 
     async def get_all_minecraft_adapter(self) -> List[MinecraftPlatformAdapter]:

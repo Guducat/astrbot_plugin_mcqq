@@ -428,7 +428,15 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         death_message = ""
         try:
             if death_payload:
-                death_message = format_death(death_payload, default_player_name=player_name)
+                death_style = "official"
+                try:
+                    plugin = getattr(self, "plugin_instance", None)
+                    if plugin and getattr(plugin, "death_message_style", None):
+                        death_style = str(getattr(plugin, "death_message_style")).strip().lower() or "official"
+                except Exception:
+                    death_style = "official"
+
+                death_message = format_death(death_payload, default_player_name=player_name, style=death_style)
             if not death_message and death_message_raw:
                 death_message = normalize_death_message(death_message_raw, default_player_name=player_name)
         except Exception:
