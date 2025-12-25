@@ -352,21 +352,24 @@ class MessageHandler:
             return False
 
         # 构造死亡消息
-        if death_payload:
+        death_style = "official"
+        try:
+            plugin = getattr(adapter, "plugin_instance", None) if adapter else None
+            if plugin and getattr(plugin, "death_message_style", None):
+                death_style = str(getattr(plugin, "death_message_style")).strip().lower() or "official"
+        except Exception:
             death_style = "official"
-            try:
-                plugin = getattr(adapter, "plugin_instance", None) if adapter else None
-                if plugin and getattr(plugin, "death_message_style", None):
-                    death_style = str(getattr(plugin, "death_message_style")).strip().lower() or "official"
-            except Exception:
-                death_style = "official"
 
+        if death_payload:
             message = (
                 format_death(death_payload, default_player_name=player_name, style=death_style)
                 or f"{player_name} 死了"
             )
         else:
-            message = normalize_death_message(death_message, default_player_name=player_name) or f"{player_name} 死了"
+            message = (
+                normalize_death_message(death_message, default_player_name=player_name, style=death_style)
+                or f"{player_name} 死了"
+            )
 
         # 发送到绑定的QQ群
         if bound_groups:

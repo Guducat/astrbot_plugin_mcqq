@@ -17,6 +17,34 @@ class DeathMessageRule:
     repl: Repl
 
 
+_FALL_RAW_PATTERNS: Sequence[Pattern[str]] = (
+    re.compile(r"^(?P<name>.+?) fell from a high place(?: .+)?$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) hit the ground too hard(?: .+)?$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell off a ladder$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell off some vines$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell off some weeping vines$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell off some twisting vines$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell off scaffolding$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) fell while climbing$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) 落地过猛$"),
+    re.compile(r"^(?P<name>.+?) 从高处坠落$"),
+    re.compile(r"^(?P<name>.+?) 从梯子上摔下了$"),
+    re.compile(r"^(?P<name>.+?) 从藤蔓上摔下了$"),
+    re.compile(r"^(?P<name>.+?) 从脚手架上摔下了$"),
+)
+
+_DROWN_RAW_PATTERNS: Sequence[Pattern[str]] = (
+    re.compile(r"^(?P<name>.+?) drowned$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) 淹死了$"),
+)
+
+_LAVA_RAW_PATTERNS: Sequence[Pattern[str]] = (
+    re.compile(r"^(?P<name>.+?) tried to swim in lava(?: .+)?$", re.IGNORECASE),
+    re.compile(r"^(?P<name>.+?) 试图在熔岩里游泳$"),
+    re.compile(r"^(?P<name>.+?) 试图在熔岩中游泳$"),
+)
+
+
 def _clean(text: str) -> str:
     t = (text or "").replace("\u00a0", " ")
     t = _COLOR_CODE_RE.sub("", t)
@@ -142,15 +170,43 @@ _RULES: Sequence[DeathMessageRule] = (
 )
 
 
-def normalize_death_message(message: str, default_player_name: Optional[str] = None) -> str:
+def normalize_death_message(
+    message: str,
+    default_player_name: Optional[str] = None,
+    *,
+    style: str = "official",
+) -> str:
     """
     归一化死亡消息，输出更简洁的中文文本。
     - 不保证覆盖所有死亡消息类型；优先处理常见/高频类型
     - 未匹配时返回清洗后的原文（去颜色码、折叠空白）
+    - 当仅有纯文本（无 key/args）且 style 为 mix/fun/random 时，会尽量套用对应模板生成更丰富的文案
     """
     msg = _clean(message)
     if not msg:
         return f"{default_player_name} 死了" if default_player_name else ""
+
+    normalized_style = (str(style or "official")).strip().lower()
+    if normalized_style not in {"official", "off", "0", "false", "关闭", "关", "官方"}:
+        # 若没有结构化 key/args，仅有纯文本时，尽量根据常见死因套用模板（支持彩蛋/随机风格）。
+        for key, patterns in (
+            ("death.attack.fall", _FALL_RAW_PATTERNS),
+            ("death.attack.drown", _DROWN_RAW_PATTERNS),
+            ("death.attack.lava", _LAVA_RAW_PATTERNS),
+        ):
+            templates = _DEATH_TEMPLATES.get(key)
+            if not templates:
+                continue
+            for p in patterns:
+                m = p.match(msg)
+                if not m:
+                    continue
+                name = _clean((m.groupdict().get("name") or ""))
+                args = [name] if name else []
+                template = _pick_template(templates, normalized_style)
+                out = _clean(_safe_format(template, args, default_player_name))
+                if out:
+                    return out
 
     for rule in _RULES:
         m = rule.pattern.match(msg)
@@ -178,6 +234,7 @@ def _as_text_list(value: Any) -> list[str]:
         return out
     s = _clean(str(value))
     return [s] if s else []
+
 
 def _t(official: str, *variants: str) -> tuple[str, ...]:
     return (official, *variants)
@@ -403,8 +460,12 @@ def _pick_template(templates: Sequence[str], style: str) -> str:
             return templates[0]
         return random.choice(list(templates[1:]))
 
-    # mix/random: 官方为主，少量彩蛋；无彩蛋则官方
-    if normalized in {"mix", "random", "rand", "shuffle", "mixed", "随机"}:
+    # random: 全随机（含官方）；单一模板时回退官方
+    if normalized in {"random", "rand", "shuffle", "随机", "全随机", "fullrandom", "full_random"}:
+        return random.choice(list(templates))
+
+    # mix: 官方为主，少量彩蛋；无彩蛋则官方
+    if normalized in {"mix", "mixed"}:
         if len(templates) <= 1:
             return templates[0]
         # 80% 官方，20% 彩蛋
@@ -461,7 +522,7 @@ def format_death(
 
     if not key:
         if text:
-            return normalize_death_message(text, default_player_name=default_player_name)
+            return normalize_death_message(text, default_player_name=default_player_name, style=style)
         return f"{default_player_name} 死了" if default_player_name else ""
 
     templates = _DEATH_TEMPLATES.get(key)
@@ -474,7 +535,7 @@ def format_death(
 
     # 兜底：尽量使用 text（可能是英文/中文），并做归一化
     if text:
-        return normalize_death_message(text, default_player_name=default_player_name)
+        return normalize_death_message(text, default_player_name=default_player_name, style=style)
 
     name = args[0] if args else (default_player_name or "")
     return f"{name} 死了" if name else ""

@@ -427,18 +427,22 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         # 用 key/args 优先（更稳定），否则用 message/text 归一化
         death_message = ""
         try:
-            if death_payload:
+            death_style = "official"
+            try:
+                plugin = getattr(self, "plugin_instance", None)
+                if plugin and getattr(plugin, "death_message_style", None):
+                    death_style = str(getattr(plugin, "death_message_style")).strip().lower() or "official"
+            except Exception:
                 death_style = "official"
-                try:
-                    plugin = getattr(self, "plugin_instance", None)
-                    if plugin and getattr(plugin, "death_message_style", None):
-                        death_style = str(getattr(plugin, "death_message_style")).strip().lower() or "official"
-                except Exception:
-                    death_style = "official"
 
+            if death_payload:
                 death_message = format_death(death_payload, default_player_name=player_name, style=death_style)
             if not death_message and death_message_raw:
-                death_message = normalize_death_message(death_message_raw, default_player_name=player_name)
+                death_message = normalize_death_message(
+                    death_message_raw,
+                    default_player_name=player_name,
+                    style=death_style,
+                )
         except Exception:
             death_message = death_message_raw.strip()
 

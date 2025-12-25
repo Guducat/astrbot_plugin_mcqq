@@ -70,6 +70,11 @@
   - `raw`：保留图片 URL 组件（最接近旧逻辑）
 - `enable_join_quit_messages`（默认 `true`）：是否转发 MC 进服/退服到 QQ
 - `enable_death_messages`（默认 `true`）：是否转发 MC 死亡到 QQ
+- `death_message_style`（默认 `official`）：死亡消息风格
+  - `official`：只输出官方句式
+  - `mix`：官方为主 + 少量彩蛋
+  - `fun`：尽量使用彩蛋（无彩蛋则官方）
+  - `random` / `随机`：在可用模板中全随机（含官方）
 - `enable_mc_chat_to_qq_forward`（默认 `false`）：是否转发 MC 普通聊天到 QQ
 - `enable_mc_qq_command`（默认 `true`）：是否允许 MC 侧使用 `<唤醒词>qq` 转发到 QQ
 - `debug_mode`（默认 `false`）：更详细日志（排查转发链路用）
